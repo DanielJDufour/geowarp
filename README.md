@@ -9,14 +9,7 @@ npm install -S geowarp
 # usage
 ```javascript
 const geowarp = require("geowarp");
-const geotiff = require("geotiff");
 const proj4 = require("proj4-fully-loaded");
-
-// inside an async function
-// bounding box in Web Mercator Projection (https://epsg.io/3857)
-// here's the same bbox in EPSG 4326 projection: [ -122.51953125, 40.97989806962013, -122.34375, 41.11246878918086 ]
-const bbox = [-13638811.83098057, 5028944.964938315, -13619243.951739563, 5028944.964938315];
-const tiff = await geotiff.fromUrl("https://geoblaze.s3.amazonaws.com/wildfires.tiff");
 
 const result = geowarp({
   // control the level of console log output
@@ -31,43 +24,45 @@ const result = geowarp({
   // usually [ r, g, b ] or [ r, g, b, a ]
   // pixel data for each band is usually flattened,
   // so the end of one row is immediately followed by the next row
-  in_data,
+  in_data: [
+    [0, 123, 123, 162, ...],
+    [213, 41, 62, 124, ...],
+    [84, 52, 124, 235, ...]
+  ],
 
   // bounding box of input data (in_data)
   // in [xmin, ymin, xmax, ymax] format
-  // e.g. [ -122.51, 40.97, -122.34, 41.11 ]
-  in_bbox,
+  in_bbox: [ -122.51, 40.97, -122.34, 41.11 ],
 
   // a number or string representing the spatial reference system of the input data
   // could be 4326 or "EPSG:4326"
-  in_srs,
+  in_srs: 4326,
 
   // how many pixels wide the input data is
-  in_width: in_data.width,
+  in_width: 1032,
 
   // how many pixels tall the input data is
-  in_height: in_data.height,
+  in_height: 1015,
 
   // bounding box of output
   // this is the space that you want to paint
   // in same format as in_bbox
-  // e.g. [ -122.51, 40.97, -122.34, 41.11 ]
-  out_bbox,
+  out_bbox: [-13638811.83098057, 5028944.964938315, -13619243.951739563, 5028944.964938315],
 
   // a number or string representing the spatial reference system of the input data
   // could be 4326 or "EPSG:4326"
   out_srs: 3857,
 
   // height of the output image in pixels
-  out_height,
+  out_height: 256,
 
   // width of the output image in pixels
-  out_width,
+  out_width: 256,
 
   // method to use to sample the pixels
   // current supported methods are:
   // "max", "mean", "median", "min", "mode", "mode-max", "mode-mean", "mode-median", and "mode-min"
-  method,
+  method: 'median',
 
   // round output pixel values to closest integer
   // do this if you will convert your output to a PNG or JPG
