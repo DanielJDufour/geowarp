@@ -7,7 +7,7 @@ npm install -S geowarp
 ```
 
 # usage
-```
+```javascript
 const geowarp = require("geowarp");
 const geotiff = require("geotiff");
 const proj4 = require("proj4-fully-loaded");
