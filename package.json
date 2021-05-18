@@ -1,0 +1,49 @@
+{
+  "name": "geowarp",
+  "version": "0.0.0",
+  "description": "Super Low-Level Raster Reprojection and Resampling Library",
+  "main": "geowarp.js",
+  "files": [
+    "geowarp.js"
+  ],
+  "scripts": {
+    "clean": "rm -fr ./test-data/*.png",
+    "format": "npx prettier --arrow-parens=avoid --print-width=160 --write *.js",
+    "setup": "node setup.js",
+    "test": "npm run clean && node test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DanielJDufour/geowarp.git"
+  },
+  "keywords": [
+    "geo",
+    "gis",
+    "image",
+    "map",
+    "maps",
+    "proj",
+    "proj4",
+    "projection",
+    "reprojection",
+    "resample",
+    "sample",
+    "warp"
+  ],
+  "author": "Daniel J. Dufour",
+  "license": "CC0-1.0",
+  "bugs": {
+    "url": "https://github.com/DanielJDufour/geowarp/issues"
+  },
+  "homepage": "https://github.com/DanielJDufour/geowarp#readme",
+  "devDependencies": {
+    "@mapbox/tilebelt": "^1.0.2",
+    "fast-counter": "*",
+    "flug": "^1.0.3",
+    "geotiff": "^1.0.4",
+    "geotiff-read-bbox": "*",
+    "pngjs": "^6.0.0",
+    "proj4-fully-loaded": "^0.0.2",
+    "reproject-bbox": "^0.0.1"
+  }
+}
