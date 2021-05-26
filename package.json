@@ -49,7 +49,7 @@
   "dependencies": {
     "fast-max": "^0.3.0",
     "fast-min": "^0.2.0",
-    "faster-median": "^0.0.0",
+    "faster-median": "^0.1.0",
     "typed-array-ranges": "^0.0.0"
   }
 }
