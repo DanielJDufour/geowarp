@@ -1,3 +1,9 @@
+const fastMax = require("fast-max");
+const fastMin = require("fast-min");
+const getTheoreticalMax = require("typed-array-ranges/get-max");
+const getTheoreticalMin = require("typed-array-ranges/get-min");
+const fasterMedian = require("faster-median");
+
 const forEach = (nums, no_data, cb) => {
   const len = nums.length;
   if (no_data) {
@@ -12,12 +18,14 @@ const forEach = (nums, no_data, cb) => {
   }
 };
 
-const max = (nums, in_no_data, out_no_data) => {
-  let result = -Infinity;
-  forEach(nums, in_no_data, n => {
-    if (n > result) result = n;
-  });
-  return result === -Infinity ? out_no_data : result;
+const median = ({ nums, in_no_data, out_no_data }) => {
+  const result = fasterMedian({ nums, no_data: in_no_data });
+  return result === undefined ? out_no_data : result;
+};
+
+const max = ({ nums, in_no_data, out_no_data, theoretical_max }) => {
+  const result = fastMax(nums, { no_data: in_no_data, theoretical_max });
+  return result === undefined ? out_no_data : result;
 };
 
 const mean = (nums, in_no_data, out_no_data) => {
@@ -30,29 +38,9 @@ const mean = (nums, in_no_data, out_no_data) => {
   return count === 0 ? out_no_data : running_sum / count;
 };
 
-const min = (nums, in_no_data, out_no_data) => {
-  let result = Infinity;
-  forEach(nums, in_no_data, n => {
-    if (n < result) result = n;
-  });
-  return result === Infinity ? out_no_data : result;
-};
-
-const median = (nums, in_no_data, out_no_data) => {
-  nums = nums.filter(n => n !== in_no_data).sort();
-  switch (nums.length) {
-    case 0:
-      return out_no_data;
-    case 1:
-      return nums[0];
-    default:
-      const mid = nums.length / 2;
-      if (nums.length % 2 === 0) {
-        return (nums[mid - 1] + nums[mid]) / 2;
-      } else {
-        return nums[Math.floor(mid)];
-      }
-  }
+const min = ({ nums, in_no_data, out_no_data, theoretical_min }) => {
+  const result = fastMin(nums, { no_data: in_no_data, theoretical_min });
+  return result === undefined ? out_no_data : result;
 };
 
 const mode = (nums, no_data) => {
@@ -98,10 +86,13 @@ const geowarp = ({
   out_no_data = null,
   method = "median",
   round = false, // whether to round output
+  theoretical_min, // minimum theoretical value (e.g., 0 for unsigned integer arrays)
+  theoretical_max, // maximum values (e.g., 255 for 8-bit unsigned integer arrays)
 }) => {
   if (debug_level) console.log("[geowarp] starting");
 
   const sameSRS = in_srs === out_srs;
+  if (debug_level) console.log("[geowarp] input and output srs are the same:", sameSRS);
 
   if (!sameSRS && typeof reproject !== "function") {
     throw new Error("[geowarp] you must specify a reproject function");
@@ -113,6 +104,7 @@ const geowarp = ({
   const num_bands = in_data.length;
   if (debug_level) console.log("[geowarp] number of bands in source data:", num_bands);
 
+  if (debug_level) console.log("[geowarp] method:", method);
   const [in_xmin, in_ymin, in_xmax, in_ymax] = in_bbox;
 
   const in_pixel_height = (in_ymax - in_ymin) / in_height;
@@ -121,9 +113,30 @@ const geowarp = ({
   if (debug_level) console.log("[geowarp] pixel width of source data:", in_pixel_width);
 
   const [out_xmin, out_ymin, out_xmax, out_ymax] = out_bbox;
+  if (debug_level) console.log("[geowarp] out_xmin:", out_xmin);
+  if (debug_level) console.log("[geowarp] out_ymin:", out_ymin);
+  if (debug_level) console.log("[geowarp] out_xmax:", out_xmax);
+  if (debug_level) console.log("[geowarp] out_ymax:", out_ymax);
 
   const out_pixel_height = (out_ymax - out_ymin) / out_height;
   const out_pixel_width = (out_xmax - out_xmin) / out_width;
+  if (debug_level) console.log("[geowarp] out_pixel_height:", out_pixel_height);
+  if (debug_level) console.log("[geowarp] out_pixel_width:", out_pixel_width);
+
+  if (theoretical_min === undefined || theoretical_max === undefined) {
+    try {
+      const data_constructor = in_data[0].constructor.name;
+      if (debug_level) console.log("[geowarp] data_constructor:", data_constructor);
+      if (theoretical_min === undefined) theoretical_min = getTheoreticalMin(data_constructor);
+      if (theoretical_max === undefined) theoretical_max = getTheoreticalMax(data_constructor);
+      if (debug_level) console.log("[geowarp] theoretical_min:", theoretical_min);
+      if (debug_level) console.log("[geowarp] theoretical_max:", theoretical_max);
+    } catch (error) {
+      // we want to log an error if it happens
+      // even if we don't strictly need it to succeed
+      console.error(error);
+    }
+  }
 
   // iterate over pixels in the out box
   const rows = [];
@@ -141,7 +154,7 @@ const geowarp = ({
 
       // convert to bbox of input coordinate system
       const bbox_in_srs = sameSRS ? [left, bottom, right, top] : [...reproject([left, bottom]), ...reproject([right, top])];
-      // console.log({bbox});
+      if (debug_level >= 3) console.log("bbox_in_srs:", bbox_in_srs);
       const [xmin_in_srs, ymin_in_srs, xmax_in_srs, ymax_in_srs] = bbox_in_srs;
 
       // convert bbox in input srs to raster pixels
@@ -158,25 +171,27 @@ const geowarp = ({
       const bottomSample = Math.round(bottomInRasterPixels);
       for (let b = 0; b < num_bands; b++) {
         const band = in_data[b];
+        // const values = new band.constructor((bottomSample - topSample + 1) * (rightSample - leftSample + 1));
         const values = [];
-        for (let y = topSample; y <= bottomSample; y++) {
+        for (let y = topSample, i = 0; y <= bottomSample; y++) {
           const start = y * in_width;
           for (let x = leftSample; x <= rightSample; x++) {
             // assuming flattened data by band
-            const value = band[start + x];
-            values.push(value);
+            // values[i++] = band[start + x];
+            values.push(band[start + x]);
           }
         }
+        // console.log("values:", JSON.stringify(values));
 
         let pixelBandValue = null;
         if (method === "max") {
-          pixelBandValue = max(values, in_no_data, out_no_data);
+          pixelBandValue = max({ nums: values, in_no_data, out_no_data, theoretical_max: undefined });
         } else if (method === "mean") {
           pixelBandValue = mean(values, in_no_data, out_no_data);
         } else if (method === "median") {
-          pixelBandValue = median(values, in_no_data, out_no_data);
+          pixelBandValue = median({ nums: values, in_no_data, out_no_data });
         } else if (method === "min") {
-          pixelBandValue = min(values, in_no_data, out_no_data);
+          pixelBandValue = min({ nums: values, in_no_data, out_no_data, theoretical_min: undefined });
         } else if (method.startsWith("mode")) {
           const modes = mode(values);
           const len = modes.length;
@@ -186,13 +201,13 @@ const geowarp = ({
             if (method === "mode") {
               pixelBandValue = modes[0];
             } else if (method === "mode-max") {
-              pixelBandValue = max(values);
+              pixelBandValue = max({ nums: values });
             } else if (method === "mode-mean") {
               pixelBandValue = mean(values);
             } else if (method === "mode-median") {
-              pixelBandValue = median(values);
+              pixelBandValue = median({ nums: values });
             } else if (method === "mode-min") {
-              pixelBandValue = min(values);
+              pixelBandValue = min({ nums: values });
             }
           }
         }

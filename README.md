@@ -66,7 +66,19 @@ const result = geowarp({
 
   // round output pixel values to closest integer
   // do this if you will convert your output to a PNG or JPG
-  round: true
+  round: true,
+
+  // optional
+  // the lowest possible pixel value considering the bit-depth of the data
+  // this is used to speed up the min and mode-min resampling
+  // if in_data is an array of typed arrays, this will be automatically calculated 
+  theoretical_min: 0,
+
+  // optional
+  // the highest possible pixel value considering the bit-depth of the data
+  // this is used to speed up the max and mode-max resampling
+  // if in_data is an array of typed arrays, this will be automatically calculated 
+  theoretical_max: 255
 });
 
 // result.data is a 3-dimensional array of pixel values broken down by row then column the band

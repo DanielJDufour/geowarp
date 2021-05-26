@@ -57,19 +57,22 @@ const readTile = async ({ x, y, z, filename }) => {
   };
 };
 
-const runTileTests = async ({ x, y, z, filename, most_common_pixels }) => {
+const runTileTests = async ({ x, y, z, filename, methods, sizes = [64, 256, 512], most_common_pixels }) => {
   try {
-    const info = await readTile({ x, y, z, filename });
-    // console.log("info got", info);
-
-    const in_srs = info.geotiff_srs;
-
-    const reproject = proj4("EPSG:" + 3857, "EPSG:" + in_srs).forward;
-
-    [64, 256, 512].forEach(size => {
-      ["max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"].forEach(method => {
+    let readTilePromise;
+    sizes.forEach(size => {
+      methods.forEach(method => {
         const testName = `${filename.split(".")[0]}-${method}-${size}`;
-        test(testName, ({ eq }) => {
+        test(testName, async ({ eq }) => {
+          if (!readTilePromise) readTilePromise = readTile({ x, y, z, filename });
+
+          const info = await readTilePromise;
+          // console.log("info got", info);
+
+          const in_srs = info.geotiff_srs;
+
+          const reproject = proj4("EPSG:" + 3857, "EPSG:" + in_srs).forward;
+
           const result = geowarp({
             debug_level: 0,
             reproject,
@@ -98,7 +101,7 @@ const runTileTests = async ({ x, y, z, filename, most_common_pixels }) => {
           const top = Object.entries(counts).sort((a, b) => Math.sign(b - a))[0][0];
           eq(most_common_pixels.includes(top), true);
 
-          // writePNGSync({ h: size, w: size, data: result.data, filepath: `./test-data/${testName}` });
+          writePNGSync({ h: size, w: size, data: result.data, filepath: `./test-data/${testName}` });
         });
       });
     });
@@ -109,12 +112,23 @@ const runTileTests = async ({ x, y, z, filename, most_common_pixels }) => {
 };
 
 [
-  { x: 40, y: 96, z: 8, filename: "wildfires.tiff", most_common_pixels: ["0,0,0", "18,26,12", "13,18,9", "22,30,17"] },
+  {
+    x: 40,
+    y: 96,
+    z: 8,
+    sizes: [64, 256, 512],
+    filename: "wildfires.tiff",
+    methods: ["max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
+    most_common_pixels: ["0,0,0", "18,26,12", "13,18,9", "22,30,17"],
+  },
   {
     x: 3853,
     y: 6815,
     z: 14,
+    sizes: [64, 256, 512],
+    // sizes: [256],
     filename: "SkySat_Freeport_s03_20170831T162740Z3.tif",
+    methods: ["max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
     most_common_pixels: [
       "121,110,99",
       "132,127,125",
@@ -134,3 +148,31 @@ const runTileTests = async ({ x, y, z, filename, most_common_pixels }) => {
     ],
   },
 ].forEach(runTileTests);
+
+["min", "max", "median"].forEach(method => {
+  test(method + " performance", async ({ eq }) => {
+    const info = await readTile({ x: 3853, y: 6815, z: 14, filename: "SkySat_Freeport_s03_20170831T162740Z3.tif" });
+
+    console.time("geowarping");
+    const result = geowarp({
+      debug_level: 0,
+      reproject: proj4("EPSG:" + 3857, "EPSG:" + info.geotiff_srs).forward,
+
+      // regarding input data
+      in_data: info.data,
+      in_bbox: info.geotiff_bbox,
+      in_srs: info.geotiff_srs,
+      in_width: info.width,
+      in_height: info.height,
+
+      // regarding location to paint
+      out_bbox: info.tile_bbox,
+      out_srs: 3857,
+      out_height: 256,
+      out_width: 256,
+      method,
+      round: true,
+    });
+    console.timeEnd("geowarping");
+  });
+});
