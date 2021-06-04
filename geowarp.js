@@ -155,7 +155,11 @@ const geowarp = ({
         const pixel = [];
         for (let b = 0; b < num_bands; b++) {
           let pixelBandValue = in_data[b][i];
-          if (round) pixelBandValue = Math.round(pixelBandValue);
+          if (pixelBandValue === undefined || pixelBandValue === in_no_data) {
+            pixelBandValue = out_no_data;
+          } else if (round) {
+            pixelBandValue = Math.round(pixelBandValue);
+          }
           pixel.push(pixelBandValue);
         }
         row.push(pixel);
