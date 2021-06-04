@@ -61,7 +61,7 @@ const result = geowarp({
 
   // method to use to sample the pixels
   // current supported methods are:
-  // "max", "mean", "median", "min", "mode", "mode-max", "mode-mean", "mode-median", and "mode-min"
+  // "near", "max", "mean", "median", "min", "mode", "mode-max", "mode-mean", "mode-median", and "mode-min"
   method: 'median',
 
   // round output pixel values to closest integer

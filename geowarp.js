@@ -140,83 +140,107 @@ const geowarp = ({
 
   // iterate over pixels in the out box
   const rows = [];
-  let top, left, bottom, right;
-  bottom = out_ymax;
-  for (let r = 0; r < out_height; r++) {
-    const row = [];
-    top = bottom;
-    bottom = top - out_pixel_height;
-    right = out_xmin;
-    for (let c = 0; c < out_width; c++) {
-      left = right;
-      right = left + out_pixel_width;
-      // top, left, bottom, right is the sample area in the coordinate system of the output
 
-      // convert to bbox of input coordinate system
-      const bbox_in_srs = sameSRS ? [left, bottom, right, top] : [...reproject([left, bottom]), ...reproject([right, top])];
-      if (debug_level >= 3) console.log("bbox_in_srs:", bbox_in_srs);
-      const [xmin_in_srs, ymin_in_srs, xmax_in_srs, ymax_in_srs] = bbox_in_srs;
-
-      // convert bbox in input srs to raster pixels
-      const leftInRasterPixels = (xmin_in_srs - in_xmin) / in_pixel_width;
-      const rightInRasterPixels = (xmax_in_srs - in_xmin) / in_pixel_width;
-      const topInRasterPixels = (in_ymax - ymax_in_srs) / in_pixel_height;
-      const bottomInRasterPixels = (in_ymax - ymin_in_srs) / in_pixel_height;
-      // console.log({xmin_in_srs, in_xmin, leftInRasterPixels, rightInRasterPixels, topInRasterPixels, bottomInRasterPixels});
-
-      const pixel = [];
-      const leftSample = Math.round(leftInRasterPixels);
-      const rightSample = Math.round(rightInRasterPixels);
-      const topSample = Math.round(topInRasterPixels);
-      const bottomSample = Math.round(bottomInRasterPixels);
-      for (let b = 0; b < num_bands; b++) {
-        const band = in_data[b];
-        // const values = new band.constructor((bottomSample - topSample + 1) * (rightSample - leftSample + 1));
-        const values = [];
-        for (let y = topSample, i = 0; y <= bottomSample; y++) {
-          const start = y * in_width;
-          for (let x = leftSample; x <= rightSample; x++) {
-            // assuming flattened data by band
-            // values[i++] = band[start + x];
-            values.push(band[start + x]);
-          }
+  if (method === "near") {
+    for (let r = 0; r < out_height; r++) {
+      const row = [];
+      const y = out_ymax - out_pixel_height * r;
+      for (let c = 0; c < out_width; c++) {
+        const x = out_xmin + out_pixel_width * c;
+        const pt_out_srs = [x, y];
+        const [x_in_srs, y_in_srs] = sameSRS ? pt_out_srs : reproject(pt_out_srs);
+        const xInRasterPixels = Math.round((x_in_srs - in_xmin) / in_pixel_width);
+        const yInRasterPixels = Math.round((in_ymax - y_in_srs) / in_pixel_height);
+        const i = yInRasterPixels * in_width + xInRasterPixels;
+        const pixel = [];
+        for (let b = 0; b < num_bands; b++) {
+          let pixelBandValue = in_data[b][i];
+          if (round) pixelBandValue = Math.round(pixelBandValue);
+          pixel.push(pixelBandValue);
         }
-        // console.log("values:", JSON.stringify(values));
+        row.push(pixel);
+      }
+      rows.push(row);
+    }
+  } else {
+    let top, left, bottom, right;
+    bottom = out_ymax;
+    for (let r = 0; r < out_height; r++) {
+      const row = [];
+      top = bottom;
+      bottom = top - out_pixel_height;
+      right = out_xmin;
+      for (let c = 0; c < out_width; c++) {
+        left = right;
+        right = left + out_pixel_width;
+        // top, left, bottom, right is the sample area in the coordinate system of the output
 
-        let pixelBandValue = null;
-        if (method === "max") {
-          pixelBandValue = max({ nums: values, in_no_data, out_no_data, theoretical_max: undefined });
-        } else if (method === "mean") {
-          pixelBandValue = mean(values, in_no_data, out_no_data);
-        } else if (method === "median") {
-          pixelBandValue = median({ nums: values, in_no_data, out_no_data });
-        } else if (method === "min") {
-          pixelBandValue = min({ nums: values, in_no_data, out_no_data, theoretical_min: undefined });
-        } else if (method.startsWith("mode")) {
-          const modes = mode(values);
-          const len = modes.length;
-          if (len === 1) {
-            pixelBandValue = modes[0];
-          } else {
-            if (method === "mode") {
-              pixelBandValue = modes[0];
-            } else if (method === "mode-max") {
-              pixelBandValue = max({ nums: values });
-            } else if (method === "mode-mean") {
-              pixelBandValue = mean(values);
-            } else if (method === "mode-median") {
-              pixelBandValue = median({ nums: values });
-            } else if (method === "mode-min") {
-              pixelBandValue = min({ nums: values });
+        // convert to bbox of input coordinate system
+        const bbox_in_srs = sameSRS ? [left, bottom, right, top] : [...reproject([left, bottom]), ...reproject([right, top])];
+        if (debug_level >= 3) console.log("bbox_in_srs:", bbox_in_srs);
+        const [xmin_in_srs, ymin_in_srs, xmax_in_srs, ymax_in_srs] = bbox_in_srs;
+
+        // convert bbox in input srs to raster pixels
+        const leftInRasterPixels = (xmin_in_srs - in_xmin) / in_pixel_width;
+        const rightInRasterPixels = (xmax_in_srs - in_xmin) / in_pixel_width;
+        const topInRasterPixels = (in_ymax - ymax_in_srs) / in_pixel_height;
+        const bottomInRasterPixels = (in_ymax - ymin_in_srs) / in_pixel_height;
+        // console.log({xmin_in_srs, in_xmin, leftInRasterPixels, rightInRasterPixels, topInRasterPixels, bottomInRasterPixels});
+
+        const pixel = [];
+        const leftSample = Math.round(leftInRasterPixels);
+        const rightSample = Math.round(rightInRasterPixels);
+        const topSample = Math.round(topInRasterPixels);
+        const bottomSample = Math.round(bottomInRasterPixels);
+        for (let b = 0; b < num_bands; b++) {
+          const band = in_data[b];
+          // const values = new band.constructor((bottomSample - topSample + 1) * (rightSample - leftSample + 1));
+          const values = [];
+          for (let y = topSample, i = 0; y <= bottomSample; y++) {
+            const start = y * in_width;
+            for (let x = leftSample; x <= rightSample; x++) {
+              // assuming flattened data by band
+              // values[i++] = band[start + x];
+              values.push(band[start + x]);
             }
           }
+          // console.log("values:", JSON.stringify(values));
+
+          let pixelBandValue = null;
+          if (method === "max") {
+            pixelBandValue = max({ nums: values, in_no_data, out_no_data, theoretical_max: undefined });
+          } else if (method === "mean") {
+            pixelBandValue = mean(values, in_no_data, out_no_data);
+          } else if (method === "median") {
+            pixelBandValue = median({ nums: values, in_no_data, out_no_data });
+          } else if (method === "min") {
+            pixelBandValue = min({ nums: values, in_no_data, out_no_data, theoretical_min: undefined });
+          } else if (method.startsWith("mode")) {
+            const modes = mode(values);
+            const len = modes.length;
+            if (len === 1) {
+              pixelBandValue = modes[0];
+            } else {
+              if (method === "mode") {
+                pixelBandValue = modes[0];
+              } else if (method === "mode-max") {
+                pixelBandValue = max({ nums: values });
+              } else if (method === "mode-mean") {
+                pixelBandValue = mean(values);
+              } else if (method === "mode-median") {
+                pixelBandValue = median({ nums: values });
+              } else if (method === "mode-min") {
+                pixelBandValue = min({ nums: values });
+              }
+            }
+          }
+          if (round) pixelBandValue = Math.round(pixelBandValue);
+          pixel.push(pixelBandValue);
         }
-        if (round) pixelBandValue = Math.round(pixelBandValue);
-        pixel.push(pixelBandValue);
+        row.push(pixel);
       }
-      row.push(pixel);
+      rows.push(row);
     }
-    rows.push(row);
   }
 
   if (debug_level) console.log("[geowarp] finishing");

@@ -101,7 +101,9 @@ const runTileTests = async ({ x, y, z, filename, methods, sizes = [64, 256, 512]
           const top = Object.entries(counts).sort((a, b) => Math.sign(b - a))[0][0];
           eq(most_common_pixels.includes(top), true);
 
-          writePNGSync({ h: size, w: size, data: result.data, filepath: `./test-data/${testName}` });
+          if (process.env.GEOWARP_WRITE_PNG) {
+            writePNGSync({ h: size, w: size, data: result.data, filepath: `./test-data/${testName}` });
+          }
         });
       });
     });
@@ -118,7 +120,7 @@ const runTileTests = async ({ x, y, z, filename, methods, sizes = [64, 256, 512]
     z: 8,
     sizes: [64, 256, 512],
     filename: "wildfires.tiff",
-    methods: ["max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
+    methods: ["near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
     most_common_pixels: ["0,0,0", "18,26,12", "13,18,9", "22,30,17"],
   },
   {
@@ -128,7 +130,7 @@ const runTileTests = async ({ x, y, z, filename, methods, sizes = [64, 256, 512]
     sizes: [64, 256, 512],
     // sizes: [256],
     filename: "SkySat_Freeport_s03_20170831T162740Z3.tif",
-    methods: ["max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
+    methods: ["near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
     most_common_pixels: [
       "121,110,99",
       "132,127,125",
@@ -141,6 +143,7 @@ const runTileTests = async ({ x, y, z, filename, methods, sizes = [64, 256, 512]
       "146,141,139",
       "147,140,136",
       "147,141,137",
+      "152,146,142",
       "152,146,143",
       "153,133,143",
       "157,152,150",
@@ -149,7 +152,7 @@ const runTileTests = async ({ x, y, z, filename, methods, sizes = [64, 256, 512]
   },
 ].forEach(runTileTests);
 
-["min", "max", "median"].forEach(method => {
+["near", "min", "max", "median"].forEach(method => {
   test(method + " performance", async ({ eq }) => {
     const info = await readTile({ x: 3853, y: 6815, z: 14, filename: "SkySat_Freeport_s03_20170831T162740Z3.tif" });
 
