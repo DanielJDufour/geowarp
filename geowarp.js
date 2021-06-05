@@ -166,6 +166,82 @@ const geowarp = ({
       }
       rows.push(row);
     }
+  } else if (method === "bilinear") {
+    for (let r = 0; r < out_height; r++) {
+      const row = [];
+      const y = out_ymax - out_pixel_height * r;
+      for (let c = 0; c < out_width; c++) {
+        const x = out_xmin + out_pixel_width * c;
+        const pt_out_srs = [x, y];
+        const [x_in_srs, y_in_srs] = sameSRS ? pt_out_srs : reproject(pt_out_srs);
+
+        const xInRasterPixels = (x_in_srs - in_xmin) / in_pixel_width;
+        const yInRasterPixels = (in_ymax - y_in_srs) / in_pixel_height;
+
+        // we offset in order to account for the fact that the pixel at index 0
+        // is represented by a point at x=0.5 (the center of the pixel)
+        const xInRasterPixelsOffset = xInRasterPixels - 0.5;
+        const yInRasterPixelsOffset = yInRasterPixels - 0.5;
+
+        const left = Math.floor(xInRasterPixelsOffset);
+        const right = Math.ceil(xInRasterPixelsOffset);
+        const bottom = Math.floor(yInRasterPixelsOffset);
+        const top = Math.ceil(yInRasterPixelsOffset);
+
+        const leftWeight = xInRasterPixels % 1;
+        const rightWeight = 1 - leftWeight;
+        const bottomWeight = yInRasterPixels % 1;
+        const topWeight = 1 - bottomWeight;
+
+        const pixel = [];
+        for (let b = 0; b < num_bands; b++) {
+          const band = in_data[b];
+
+          const upperLeftValue = band[top * in_width + left];
+          const upperRightValue = band[top * in_width + right];
+          const lowerLeftValue = band[bottom * in_width + left];
+          const lowerRightValue = band[bottom * in_width + right];
+
+          let topValue;
+          if ((upperLeftValue === undefined || upperLeftValue === in_no_data) && (upperRightValue === undefined || upperRightValue === in_no_data)) {
+            // keep topValue undefined
+          } else if (upperLeftValue === undefined || upperLeftValue === in_no_data) {
+            topValue = upperRightValue;
+          } else if (upperRightValue === undefined || upperRightValue === in_no_data) {
+            topValue = upperLeftValue;
+          } else {
+            topValue = leftWeight * upperLeftValue + rightWeight * upperRightValue;
+          }
+
+          let bottomValue;
+          if ((lowerLeftValue === undefined || lowerLeftValue === in_no_data) && (lowerRightValue === undefined || lowerRightValue === in_no_data)) {
+            // keep bottom value undefined
+          } else if (lowerLeftValue === undefined || lowerLeftValue === in_no_data) {
+            bottomValue = lowerRightValue;
+          } else if (upperRightValue === undefined || upperRightValue === in_no_data) {
+            bottomValue = lowerLeftValue;
+          } else {
+            bottomValue = leftWeight * lowerLeftValue + rightWeight * lowerRightValue;
+          }
+
+          let value;
+          if (topValue === undefined && bottomValue === undefined) {
+            value = out_no_data;
+          } else if (topValue === undefined) {
+            value = bottomValue;
+          } else if (bottomValue === undefined) {
+            value = topValue;
+          } else {
+            value = bottomWeight * topValue + topWeight * bottomValue;
+          }
+
+          if (round) value = Math.round(value);
+          pixel.push(value);
+        }
+        row.push(pixel);
+      }
+      rows.push(row);
+    }
   } else {
     let top, left, bottom, right;
     bottom = out_ymax;

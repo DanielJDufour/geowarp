@@ -120,7 +120,7 @@ const runTileTests = async ({ x, y, z, filename, methods, sizes = [64, 256, 512]
     z: 8,
     sizes: [64, 256, 512],
     filename: "wildfires.tiff",
-    methods: ["near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
+    methods: ["bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
     most_common_pixels: ["0,0,0", "18,26,12", "13,18,9", "22,30,17"],
   },
   {
@@ -130,7 +130,7 @@ const runTileTests = async ({ x, y, z, filename, methods, sizes = [64, 256, 512]
     sizes: [64, 256, 512],
     // sizes: [256],
     filename: "SkySat_Freeport_s03_20170831T162740Z3.tif",
-    methods: ["near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
+    methods: ["bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
     most_common_pixels: [
       "121,110,99",
       "132,127,125",
@@ -146,13 +146,14 @@ const runTileTests = async ({ x, y, z, filename, methods, sizes = [64, 256, 512]
       "152,146,142",
       "152,146,143",
       "153,133,143",
+      "154,147,144",
       "157,152,150",
       "208,205,204",
     ],
   },
 ].forEach(runTileTests);
 
-["near", "min", "max", "median"].forEach(method => {
+["bilinear", "near", "min", "max", "median"].forEach(method => {
   test(method + " performance", async ({ eq }) => {
     const info = await readTile({ x: 3853, y: 6815, z: 14, filename: "SkySat_Freeport_s03_20170831T162740Z3.tif" });
 
