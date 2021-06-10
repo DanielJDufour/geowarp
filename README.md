@@ -81,5 +81,5 @@ const result = geowarp({
   theoretical_max: 255
 });
 
-// result.data is a 3-dimensional array of pixel values broken down by row then column the band
+// result.data is a 3-dimensional array of pixel values broken down by row then column then band
 ```
