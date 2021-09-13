@@ -75,11 +75,13 @@ const geowarp = ({
   reproject, // equivalent of proj4(source, target).inverse()
   in_data,
   in_bbox,
+  in_layout = "[band][row,column]",
   in_srs,
   in_height,
   in_width,
   in_no_data,
   out_bbox,
+  out_layout,
   out_srs,
   out_width = 256,
   out_height = 256,
@@ -100,6 +102,10 @@ const geowarp = ({
 
   if (!in_height) throw new Error("[geowarp] you must provide in_height");
   if (!in_width) throw new Error("[geowarp] you must provide in_width");
+
+  // if no output layout is specified
+  // just return the data in the same layout as it is provided
+  if (!out_layout) out_layout = in_layout;
 
   const num_bands = in_data.length;
   if (debug_level) console.log("[geowarp] number of bands in source data:", num_bands);
@@ -154,7 +160,15 @@ const geowarp = ({
         const i = yInRasterPixels * in_width + xInRasterPixels;
         const pixel = [];
         for (let b = 0; b < num_bands; b++) {
-          let pixelBandValue = in_data[b][i];
+          let pixelBandValue;
+          if (in_layout === "[band][row,column]") {
+            pixelBandValue = in_data[b][i];
+          } else if (in_layout === "[band][row][column]") {
+            pixelBandValue = in_data[b][yInRasterPixels][xInRasterPixels];
+          } else if (in_layout === "[row,column,band]") {
+            pixelBandValue = in_data[num_bands * (in_width * yInRasterPixels + xInRasterPixels) + b];
+          }
+
           if (pixelBandValue === undefined || pixelBandValue === in_no_data) {
             pixelBandValue = out_no_data;
           } else if (round) {
@@ -195,12 +209,25 @@ const geowarp = ({
 
         const pixel = [];
         for (let b = 0; b < num_bands; b++) {
-          const band = in_data[b];
-
-          const upperLeftValue = band[top * in_width + left];
-          const upperRightValue = band[top * in_width + right];
-          const lowerLeftValue = band[bottom * in_width + left];
-          const lowerRightValue = band[bottom * in_width + right];
+          let upperLeftValue, upperRightValue, lowerLeftValue, lowerRightValue;
+          if (in_layout === "[band][row,column]") {
+            const band = in_data[b];
+            upperLeftValue = band[top * in_width + left];
+            upperRightValue = band[top * in_width + right];
+            lowerLeftValue = band[bottom * in_width + left];
+            lowerRightValue = band[bottom * in_width + right];
+          } else if (in_layout === "[band][row][column]") {
+            const band = in_data[b];
+            upperLeftValue = band[top][left];
+            upperRightValue = band[top][right];
+            lowerLeftValue = band[bottom][left];
+            lowerRightValue = band[bottom][right];
+          } else if (in_layout === "[row,column,band]") {
+            upperLeftValue = in_data[num_bands * (in_width * top + left) + b];
+            upperRightValue = in_data[num_bands * (in_width * top + right) + b];
+            lowerLeftValue = in_data[num_bands * (in_width * bottom + left) + b];
+            lowerRightValue = in_data[num_bands * (in_width * bottom + right) + b];
+          }
 
           let topValue;
           if ((upperLeftValue === undefined || upperLeftValue === in_no_data) && (upperRightValue === undefined || upperRightValue === in_no_data)) {
@@ -273,18 +300,33 @@ const geowarp = ({
         const topSample = Math.round(topInRasterPixels);
         const bottomSample = Math.round(bottomInRasterPixels);
         for (let b = 0; b < num_bands; b++) {
-          const band = in_data[b];
-          // const values = new band.constructor((bottomSample - topSample + 1) * (rightSample - leftSample + 1));
           const values = [];
-          for (let y = topSample, i = 0; y <= bottomSample; y++) {
-            const start = y * in_width;
-            for (let x = leftSample; x <= rightSample; x++) {
-              // assuming flattened data by band
-              // values[i++] = band[start + x];
-              values.push(band[start + x]);
+
+          if (in_layout === "[band][row,column]") {
+            const band = in_data[b];
+            for (let y = topSample, i = 0; y <= bottomSample; y++) {
+              const start = y * in_width;
+              for (let x = leftSample; x <= rightSample; x++) {
+                values.push(band[start + x]);
+              }
+            }
+          } else if (in_layout === "[band][row][column]") {
+            const band = in_data[b];
+            for (let y = topSample, i = 0; y <= bottomSample; y++) {
+              const row = band[y];
+              for (let x = leftSample; x <= rightSample; x++) {
+                // assuming flattened data by band
+                // values[i++] = band[start + x];
+                values.push(row[x]);
+              }
+            }
+          } else if (in_layout === "[row,column,band]") {
+            for (let y = topSample, i = 0; y <= bottomSample; y++) {
+              for (let x = leftSample; x <= rightSample; x++) {
+                values.push(in_data[num_bands * (in_width * y + x) + b]);
+              }
             }
           }
-          // console.log("values:", JSON.stringify(values));
 
           let pixelBandValue = null;
           if (method === "max") {
