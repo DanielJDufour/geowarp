@@ -51,6 +51,7 @@ const readTile = async ({ x, y, z, filename }) => {
     data,
     geotiff_srs: srs_of_geotiff,
     height,
+    layout: "[band][row,column]",
     tile_bbox: bbox3857,
     geotiff_bbox: read_bbox,
     width,
@@ -80,12 +81,14 @@ const runTileTests = async ({ x, y, z, filename, methods, sizes = [64, 256, 512]
             // regarding input data
             in_data: info.data,
             in_bbox: info.geotiff_bbox,
+            in_layout: info.layout,
             in_srs: info.geotiff_srs,
             in_width: info.width,
             in_height: info.height,
 
             // regarding location to paint
             out_bbox: info.tile_bbox,
+            out_layout: "[row][column][band]",
             out_srs: 3857,
             out_height: size,
             out_width: size,
@@ -171,6 +174,7 @@ const runTileTests = async ({ x, y, z, filename, methods, sizes = [64, 256, 512]
 
       // regarding location to paint
       out_bbox: info.tile_bbox,
+      out_layout: "[row][column][band]",
       out_srs: 3857,
       out_height: 256,
       out_width: 256,
