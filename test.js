@@ -58,55 +58,85 @@ const readTile = async ({ x, y, z, filename }) => {
   };
 };
 
-const runTileTests = async ({ x, y, z, filename, methods, sizes = [64, 256, 512], most_common_pixels }) => {
+const runTileTests = async ({
+  x,
+  y,
+  z,
+  filename,
+  methods,
+  out_layouts = ["[row][column][band]", "[band][row][column]", "[band][row,column]"],
+  sizes = [64, 256, 512],
+  most_common_pixels,
+}) => {
   try {
     let readTilePromise;
     sizes.forEach(size => {
       methods.forEach(method => {
-        const testName = `${filename.split(".")[0]}-${method}-${size}`;
-        test(testName, async ({ eq }) => {
-          if (!readTilePromise) readTilePromise = readTile({ x, y, z, filename });
+        out_layouts.forEach(out_layout => {
+          const testName = `${filename.split(".")[0]}-${method}-${size}-${out_layout}`;
+          test(testName, async ({ eq }) => {
+            if (!readTilePromise) readTilePromise = readTile({ x, y, z, filename });
 
-          const info = await readTilePromise;
-          // console.log("info got", info);
+            const info = await readTilePromise;
+            // console.log("info got", info);
 
-          const in_srs = info.geotiff_srs;
+            const in_srs = info.geotiff_srs;
 
-          const reproject = proj4("EPSG:" + 3857, "EPSG:" + in_srs).forward;
+            const reproject = proj4("EPSG:" + 3857, "EPSG:" + in_srs).forward;
 
-          const result = geowarp({
-            debug_level: 0,
-            reproject,
+            const result = geowarp({
+              debug_level: 0,
+              reproject,
 
-            // regarding input data
-            in_data: info.data,
-            in_bbox: info.geotiff_bbox,
-            in_layout: info.layout,
-            in_srs: info.geotiff_srs,
-            in_width: info.width,
-            in_height: info.height,
+              // regarding input data
+              in_data: info.data,
+              in_bbox: info.geotiff_bbox,
+              in_layout: info.layout,
+              in_srs: info.geotiff_srs,
+              in_width: info.width,
+              in_height: info.height,
 
-            // regarding location to paint
-            out_bbox: info.tile_bbox,
-            out_layout: "[row][column][band]",
-            out_srs: 3857,
-            out_height: size,
-            out_width: size,
-            method,
-            round: true,
+              // regarding location to paint
+              out_bbox: info.tile_bbox,
+              out_layout,
+              out_srs: 3857,
+              out_height: size,
+              out_width: size,
+              method,
+              round: true,
+            });
+
+            let counts;
+            if (out_layout === "[row][column][band]") {
+              eq(result.data.length, size);
+              eq(result.data[0].length, size);
+              eq(result.data[0][0].length, 3);
+              counts = count(result.data, { depth: 2 });
+              const top = Object.entries(counts).sort((a, b) => Math.sign(b - a))[0][0];
+              eq(most_common_pixels.includes(top), true);
+            } else if (out_layout === "[band][row][column]") {
+              eq(result.data.length, 3);
+              eq(result.data[0].length, size);
+              eq(result.data[0][0].length, size);
+            } else if (out_layout === "[band][row,column]") {
+              eq(result.data.length, 3);
+              eq(
+                result.data.every(b => b.length === size * size),
+                true
+              );
+              counts = count(result.data, { depth: 1 });
+            } else if (out_layout === "[row,column,band]") {
+              eq(result.data.length, 3 * size * size);
+              eq(
+                result.data.every(n => typeof n === "number"),
+                true
+              );
+            }
+
+            if (process.env.GEOWARP_WRITE_PNG) {
+              writePNGSync({ h: size, w: size, data: result.data, filepath: `./test-data/${testName}` });
+            }
           });
-
-          eq(result.data.length, size);
-          eq(result.data[0].length, size);
-          eq(result.data[0][0].length, 3);
-
-          const counts = count(result.data, { depth: 2 });
-          const top = Object.entries(counts).sort((a, b) => Math.sign(b - a))[0][0];
-          eq(most_common_pixels.includes(top), true);
-
-          if (process.env.GEOWARP_WRITE_PNG) {
-            writePNGSync({ h: size, w: size, data: result.data, filepath: `./test-data/${testName}` });
-          }
         });
       });
     });
