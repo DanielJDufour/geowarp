@@ -3,6 +3,7 @@ const fastMin = require("fast-min");
 const getTheoreticalMax = require("typed-array-ranges/get-max");
 const getTheoreticalMin = require("typed-array-ranges/get-min");
 const fasterMedian = require("faster-median");
+const xdim = require("xdim");
 
 const forEach = (nums, no_data, cb) => {
   const len = nums.length;
@@ -144,12 +145,23 @@ const geowarp = ({
     }
   }
 
-  // iterate over pixels in the out box
-  const rows = [];
+  const in_sizes = {
+    band: num_bands,
+    row: in_height,
+    column: in_width,
+  };
+
+  // dimensions of the output
+  const out_sizes = {
+    band: num_bands,
+    row: out_height,
+    column: out_width,
+  };
+
+  const out_data = xdim.prep({ layout: out_layout, sizes: out_sizes }).matrix;
 
   if (method === "near") {
     for (let r = 0; r < out_height; r++) {
-      const row = [];
       const y = out_ymax - out_pixel_height * r;
       for (let c = 0; c < out_width; c++) {
         const x = out_xmin + out_pixel_width * c;
@@ -158,7 +170,6 @@ const geowarp = ({
         const xInRasterPixels = Math.round((x_in_srs - in_xmin) / in_pixel_width);
         const yInRasterPixels = Math.round((in_ymax - y_in_srs) / in_pixel_height);
         const i = yInRasterPixels * in_width + xInRasterPixels;
-        const pixel = [];
         for (let b = 0; b < num_bands; b++) {
           let pixelBandValue;
           if (in_layout === "[band][row,column]") {
@@ -174,15 +185,18 @@ const geowarp = ({
           } else if (round) {
             pixelBandValue = Math.round(pixelBandValue);
           }
-          pixel.push(pixelBandValue);
+          xdim.update({
+            data: out_data,
+            layout: out_layout,
+            sizes: out_sizes,
+            point: { band: b, row: r, column: c },
+            value: pixelBandValue,
+          });
         }
-        row.push(pixel);
       }
-      rows.push(row);
     }
   } else if (method === "bilinear") {
     for (let r = 0; r < out_height; r++) {
-      const row = [];
       const y = out_ymax - out_pixel_height * r;
       for (let c = 0; c < out_width; c++) {
         const x = out_xmin + out_pixel_width * c;
@@ -207,7 +221,6 @@ const geowarp = ({
         const bottomWeight = yInRasterPixels % 1;
         const topWeight = 1 - bottomWeight;
 
-        const pixel = [];
         for (let b = 0; b < num_bands; b++) {
           let upperLeftValue, upperRightValue, lowerLeftValue, lowerRightValue;
           if (in_layout === "[band][row,column]") {
@@ -263,17 +276,20 @@ const geowarp = ({
           }
 
           if (round) value = Math.round(value);
-          pixel.push(value);
+          xdim.update({
+            data: out_data,
+            layout: out_layout,
+            sizes: out_sizes,
+            point: { band: b, row: r, column: c },
+            value,
+          });
         }
-        row.push(pixel);
       }
-      rows.push(row);
     }
   } else {
     let top, left, bottom, right;
     bottom = out_ymax;
     for (let r = 0; r < out_height; r++) {
-      const row = [];
       top = bottom;
       bottom = top - out_pixel_height;
       right = out_xmin;
@@ -294,7 +310,7 @@ const geowarp = ({
         const bottomInRasterPixels = (in_ymax - ymin_in_srs) / in_pixel_height;
         // console.log({xmin_in_srs, in_xmin, leftInRasterPixels, rightInRasterPixels, topInRasterPixels, bottomInRasterPixels});
 
-        const pixel = [];
+        // const pixel = [];
         const leftSample = Math.round(leftInRasterPixels);
         const rightSample = Math.round(rightInRasterPixels);
         const topSample = Math.round(topInRasterPixels);
@@ -357,16 +373,20 @@ const geowarp = ({
             }
           }
           if (round) pixelBandValue = Math.round(pixelBandValue);
-          pixel.push(pixelBandValue);
+          xdim.update({
+            data: out_data,
+            layout: out_layout,
+            sizes: out_sizes,
+            point: { band: b, row: r, column: c },
+            value: pixelBandValue,
+          });
         }
-        row.push(pixel);
       }
-      rows.push(row);
     }
   }
 
   if (debug_level) console.log("[geowarp] finishing");
-  return { data: rows };
+  return { data: out_data };
 };
 
 if (typeof module === "object") module.exports = geowarp;
