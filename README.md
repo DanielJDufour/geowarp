@@ -55,7 +55,7 @@ const result = geowarp({
 
   // layout of the result using xdim layout syntax
   // see: https://github.com/danieljdufour/xdim
-  out_layout: "[band][row][column]",
+  out_layout: "[row][column][band]",
 
   // a number or string representing the spatial reference system of the input data
   // could be 4326 or "EPSG:4326"
@@ -89,5 +89,5 @@ const result = geowarp({
   theoretical_max: 255
 });
 
-// result.data is a 3-dimensional array of pixel values broken down by row then column then band
+// result.data is a 3-dimensional array of pixel values broken down by row then column then band as defined by out_layout
 ```
