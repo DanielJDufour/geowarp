@@ -90,7 +90,7 @@ const geowarp = ({
   method = "median",
   round = false, // whether to round output
   theoretical_min, // minimum theoretical value (e.g., 0 for unsigned integer arrays)
-  theoretical_max, // maximum values (e.g., 255 for 8-bit unsigned integer arrays)
+  theoretical_max // maximum values (e.g., 255 for 8-bit unsigned integer arrays)
 }) => {
   if (debug_level) console.log("[geowarp] starting");
 
@@ -148,17 +148,17 @@ const geowarp = ({
   const in_sizes = {
     band: num_bands,
     row: in_height,
-    column: in_width,
+    column: in_width
   };
 
   // dimensions of the output
   const out_sizes = {
     band: num_bands,
     row: out_height,
-    column: out_width,
+    column: out_width
   };
 
-  const out_data = xdim.prep({ layout: out_layout, sizes: out_sizes }).matrix;
+  const { data: out_data } = xdim.prepareData({ layout: out_layout, sizes: out_sizes });
 
   if (method === "near") {
     for (let r = 0; r < out_height; r++) {
@@ -169,16 +169,17 @@ const geowarp = ({
         const [x_in_srs, y_in_srs] = sameSRS ? pt_out_srs : reproject(pt_out_srs);
         const xInRasterPixels = Math.round((x_in_srs - in_xmin) / in_pixel_width);
         const yInRasterPixels = Math.round((in_ymax - y_in_srs) / in_pixel_height);
-        const i = yInRasterPixels * in_width + xInRasterPixels;
         for (let b = 0; b < num_bands; b++) {
-          let pixelBandValue;
-          if (in_layout === "[band][row,column]") {
-            pixelBandValue = in_data[b][i];
-          } else if (in_layout === "[band][row][column]") {
-            pixelBandValue = in_data[b][yInRasterPixels][xInRasterPixels];
-          } else if (in_layout === "[row,column,band]") {
-            pixelBandValue = in_data[num_bands * (in_width * yInRasterPixels + xInRasterPixels) + b];
-          }
+          let { value: pixelBandValue } = xdim.select({
+            data: in_data,
+            layout: in_layout,
+            sizes: in_sizes,
+            point: {
+              band: b,
+              row: yInRasterPixels,
+              column: xInRasterPixels
+            }
+          });
 
           if (pixelBandValue === undefined || pixelBandValue === in_no_data) {
             pixelBandValue = out_no_data;
@@ -190,7 +191,7 @@ const geowarp = ({
             layout: out_layout,
             sizes: out_sizes,
             point: { band: b, row: r, column: c },
-            value: pixelBandValue,
+            value: pixelBandValue
           });
         }
       }
@@ -222,25 +223,10 @@ const geowarp = ({
         const topWeight = 1 - bottomWeight;
 
         for (let b = 0; b < num_bands; b++) {
-          let upperLeftValue, upperRightValue, lowerLeftValue, lowerRightValue;
-          if (in_layout === "[band][row,column]") {
-            const band = in_data[b];
-            upperLeftValue = band[top * in_width + left];
-            upperRightValue = band[top * in_width + right];
-            lowerLeftValue = band[bottom * in_width + left];
-            lowerRightValue = band[bottom * in_width + right];
-          } else if (in_layout === "[band][row][column]") {
-            const band = in_data[b];
-            upperLeftValue = band[top][left];
-            upperRightValue = band[top][right];
-            lowerLeftValue = band[bottom][left];
-            lowerRightValue = band[bottom][right];
-          } else if (in_layout === "[row,column,band]") {
-            upperLeftValue = in_data[num_bands * (in_width * top + left) + b];
-            upperRightValue = in_data[num_bands * (in_width * top + right) + b];
-            lowerLeftValue = in_data[num_bands * (in_width * bottom + left) + b];
-            lowerRightValue = in_data[num_bands * (in_width * bottom + right) + b];
-          }
+          const { value: upperLeftValue } = xdim.select({ data: in_data, layout: in_layout, sizes: in_sizes, point: { band: b, row: top, column: left } });
+          const { value: upperRightValue } = xdim.select({ data: in_data, layout: in_layout, sizes: in_sizes, point: { band: b, row: top, column: right } });
+          const { value: lowerLeftValue } = xdim.select({ data: in_data, layout: in_layout, sizes: in_sizes, point: { band: b, row: bottom, column: left } });
+          const { value: lowerRightValue } = xdim.select({ data: in_data, layout: in_layout, sizes: in_sizes, point: { band: b, row: bottom, column: right } });
 
           let topValue;
           if ((upperLeftValue === undefined || upperLeftValue === in_no_data) && (upperRightValue === undefined || upperRightValue === in_no_data)) {
@@ -281,7 +267,7 @@ const geowarp = ({
             layout: out_layout,
             sizes: out_sizes,
             point: { band: b, row: r, column: c },
-            value,
+            value
           });
         }
       }
@@ -310,39 +296,21 @@ const geowarp = ({
         const bottomInRasterPixels = (in_ymax - ymin_in_srs) / in_pixel_height;
         // console.log({xmin_in_srs, in_xmin, leftInRasterPixels, rightInRasterPixels, topInRasterPixels, bottomInRasterPixels});
 
-        // const pixel = [];
         const leftSample = Math.round(leftInRasterPixels);
         const rightSample = Math.round(rightInRasterPixels);
         const topSample = Math.round(topInRasterPixels);
         const bottomSample = Math.round(bottomInRasterPixels);
         for (let b = 0; b < num_bands; b++) {
-          const values = [];
-
-          if (in_layout === "[band][row,column]") {
-            const band = in_data[b];
-            for (let y = topSample, i = 0; y <= bottomSample; y++) {
-              const start = y * in_width;
-              for (let x = leftSample; x <= rightSample; x++) {
-                values.push(band[start + x]);
-              }
+          const { values } = xdim.clip({
+            data: in_data,
+            layout: in_layout,
+            sizes: in_sizes,
+            rect: {
+              band: { start: b, end: b },
+              row: { start: topSample, end: bottomSample },
+              column: { start: leftSample, end: rightSample }
             }
-          } else if (in_layout === "[band][row][column]") {
-            const band = in_data[b];
-            for (let y = topSample, i = 0; y <= bottomSample; y++) {
-              const row = band[y];
-              for (let x = leftSample; x <= rightSample; x++) {
-                // assuming flattened data by band
-                // values[i++] = band[start + x];
-                values.push(row[x]);
-              }
-            }
-          } else if (in_layout === "[row,column,band]") {
-            for (let y = topSample, i = 0; y <= bottomSample; y++) {
-              for (let x = leftSample; x <= rightSample; x++) {
-                values.push(in_data[num_bands * (in_width * y + x) + b]);
-              }
-            }
-          }
+          });
 
           let pixelBandValue = null;
           if (method === "max") {
@@ -378,7 +346,7 @@ const geowarp = ({
             layout: out_layout,
             sizes: out_sizes,
             point: { band: b, row: r, column: c },
-            value: pixelBandValue,
+            value: pixelBandValue
           });
         }
       }

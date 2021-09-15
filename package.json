@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "clean": "rm -fr ./test-data/*.png",
-    "format": "npx prettier --arrow-parens=avoid --print-width=160 --write *.js",
+    "format": "npx prettier --arrow-parens=avoid --print-width=160 --trailing-comma=none --write *.js",
     "setup": "node setup.js",
     "test": "npm run clean && node test.js"
   },
@@ -50,6 +50,7 @@
     "fast-max": "^0.3.0",
     "fast-min": "^0.2.0",
     "faster-median": "^0.1.0",
-    "typed-array-ranges": "^0.0.0"
+    "typed-array-ranges": "^0.0.0",
+    "xdim": "^0.0.1"
   }
 }

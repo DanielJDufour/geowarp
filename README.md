@@ -34,6 +34,10 @@ const result = geowarp({
   // in [xmin, ymin, xmax, ymax] format
   in_bbox: [ -122.51, 40.97, -122.34, 41.11 ],
 
+  // layout of the in_data using xdim layout syntax
+  // see: https://github.com/danieljdufour/xdim
+  in_layout: "[band][row,column]",
+
   // a number or string representing the spatial reference system of the input data
   // could be 4326 or "EPSG:4326"
   in_srs: 4326,
@@ -48,6 +52,10 @@ const result = geowarp({
   // this is the space that you want to paint
   // in same format as in_bbox
   out_bbox: [-13638811.83098057, 5028944.964938315, -13619243.951739563, 5028944.964938315],
+
+  // layout of the result using xdim layout syntax
+  // see: https://github.com/danieljdufour/xdim
+  out_layout: "[band][row][column]",
 
   // a number or string representing the spatial reference system of the input data
   // could be 4326 or "EPSG:4326"

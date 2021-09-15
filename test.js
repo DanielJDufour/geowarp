@@ -45,7 +45,7 @@ const readTile = async ({ x, y, z, filename }) => {
   const { data, read_bbox, height, width, srs_of_geotiff } = await readBoundingBox({
     bbox: bbox3857,
     geotiff,
-    srs: 3857,
+    srs: 3857
   });
   return {
     data,
@@ -54,7 +54,7 @@ const readTile = async ({ x, y, z, filename }) => {
     layout: "[band][row,column]",
     tile_bbox: bbox3857,
     geotiff_bbox: read_bbox,
-    width,
+    width
   };
 };
 
@@ -66,7 +66,7 @@ const runTileTests = async ({
   methods,
   out_layouts = ["[row][column][band]", "[band][row][column]", "[band][row,column]"],
   sizes = [64, 256, 512],
-  most_common_pixels,
+  most_common_pixels
 }) => {
   try {
     let readTilePromise;
@@ -103,7 +103,7 @@ const runTileTests = async ({
               out_height: size,
               out_width: size,
               method,
-              round: true,
+              round: true
             });
 
             let counts;
@@ -154,7 +154,7 @@ const runTileTests = async ({
     sizes: [64, 256, 512],
     filename: "wildfires.tiff",
     methods: ["bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
-    most_common_pixels: ["0,0,0", "18,26,12", "13,18,9", "22,30,17"],
+    most_common_pixels: ["0,0,0", "18,26,12", "13,18,9", "22,30,17"]
   },
   {
     x: 3853,
@@ -181,9 +181,9 @@ const runTileTests = async ({
       "153,133,143",
       "154,147,144",
       "157,152,150",
-      "208,205,204",
-    ],
-  },
+      "208,205,204"
+    ]
+  }
 ].forEach(runTileTests);
 
 ["bilinear", "near", "min", "max", "median"].forEach(method => {
@@ -209,7 +209,7 @@ const runTileTests = async ({
       out_height: 256,
       out_width: 256,
       method,
-      round: true,
+      round: true
     });
     console.timeEnd("geowarping");
   });

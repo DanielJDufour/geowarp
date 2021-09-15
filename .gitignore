@@ -108,3 +108,6 @@ dist
 
 tmp/
 test-data/
+
+# backup files
+*bak*
