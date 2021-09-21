@@ -160,7 +160,10 @@ const geowarp = ({
 
   const { data: out_data } = xdim.prepareData({ layout: out_layout, sizes: out_sizes });
 
+  const update = xdim.prepareUpdate({ data: out_data, layout: out_layout, sizes: out_sizes });
+
   if (method === "near") {
+    const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
     for (let r = 0; r < out_height; r++) {
       const y = out_ymax - out_pixel_height * r;
       for (let c = 0; c < out_width; c++) {
@@ -170,10 +173,7 @@ const geowarp = ({
         const xInRasterPixels = Math.round((x_in_srs - in_xmin) / in_pixel_width);
         const yInRasterPixels = Math.round((in_ymax - y_in_srs) / in_pixel_height);
         for (let b = 0; b < num_bands; b++) {
-          let { value: pixelBandValue } = xdim.select({
-            data: in_data,
-            layout: in_layout,
-            sizes: in_sizes,
+          let { value: pixelBandValue } = select({
             point: {
               band: b,
               row: yInRasterPixels,
@@ -186,10 +186,7 @@ const geowarp = ({
           } else if (round) {
             pixelBandValue = Math.round(pixelBandValue);
           }
-          xdim.update({
-            data: out_data,
-            layout: out_layout,
-            sizes: out_sizes,
+          update({
             point: { band: b, row: r, column: c },
             value: pixelBandValue
           });
@@ -197,6 +194,7 @@ const geowarp = ({
       }
     }
   } else if (method === "bilinear") {
+    const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
     for (let r = 0; r < out_height; r++) {
       const y = out_ymax - out_pixel_height * r;
       for (let c = 0; c < out_width; c++) {
@@ -223,10 +221,10 @@ const geowarp = ({
         const topWeight = 1 - bottomWeight;
 
         for (let b = 0; b < num_bands; b++) {
-          const { value: upperLeftValue } = xdim.select({ data: in_data, layout: in_layout, sizes: in_sizes, point: { band: b, row: top, column: left } });
-          const { value: upperRightValue } = xdim.select({ data: in_data, layout: in_layout, sizes: in_sizes, point: { band: b, row: top, column: right } });
-          const { value: lowerLeftValue } = xdim.select({ data: in_data, layout: in_layout, sizes: in_sizes, point: { band: b, row: bottom, column: left } });
-          const { value: lowerRightValue } = xdim.select({ data: in_data, layout: in_layout, sizes: in_sizes, point: { band: b, row: bottom, column: right } });
+          const { value: upperLeftValue } = select({ point: { band: b, row: top, column: left } });
+          const { value: upperRightValue } = select({ point: { band: b, row: top, column: right } });
+          const { value: lowerLeftValue } = select({ point: { band: b, row: bottom, column: left } });
+          const { value: lowerRightValue } = select({ point: { band: b, row: bottom, column: right } });
 
           let topValue;
           if ((upperLeftValue === undefined || upperLeftValue === in_no_data) && (upperRightValue === undefined || upperRightValue === in_no_data)) {
@@ -262,10 +260,7 @@ const geowarp = ({
           }
 
           if (round) value = Math.round(value);
-          xdim.update({
-            data: out_data,
-            layout: out_layout,
-            sizes: out_sizes,
+          update({
             point: { band: b, row: r, column: c },
             value
           });
@@ -294,21 +289,21 @@ const geowarp = ({
         const rightInRasterPixels = (xmax_in_srs - in_xmin) / in_pixel_width;
         const topInRasterPixels = (in_ymax - ymax_in_srs) / in_pixel_height;
         const bottomInRasterPixels = (in_ymax - ymin_in_srs) / in_pixel_height;
-        // console.log({xmin_in_srs, in_xmin, leftInRasterPixels, rightInRasterPixels, topInRasterPixels, bottomInRasterPixels});
 
         const leftSample = Math.round(leftInRasterPixels);
         const rightSample = Math.round(rightInRasterPixels);
         const topSample = Math.round(topInRasterPixels);
         const bottomSample = Math.round(bottomInRasterPixels);
         for (let b = 0; b < num_bands; b++) {
-          const { values } = xdim.clip({
+          const { data: values } = xdim.clip({
             data: in_data,
+            flat: true,
             layout: in_layout,
             sizes: in_sizes,
             rect: {
-              band: { start: b, end: b },
-              row: { start: topSample, end: bottomSample },
-              column: { start: leftSample, end: rightSample }
+              band: [b, b],
+              row: [topSample, bottomSample],
+              column: [leftSample, rightSample]
             }
           });
 
@@ -341,10 +336,7 @@ const geowarp = ({
             }
           }
           if (round) pixelBandValue = Math.round(pixelBandValue);
-          xdim.update({
-            data: out_data,
-            layout: out_layout,
-            sizes: out_sizes,
+          update({
             point: { band: b, row: r, column: c },
             value: pixelBandValue
           });

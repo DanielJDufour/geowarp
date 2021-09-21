@@ -9,6 +9,7 @@ const readBoundingBox = require("geotiff-read-bbox");
 const proj4 = require("proj4-fully-loaded");
 const reprojectBoundingBox = require("reproject-bbox");
 const tilebelt = require("@mapbox/tilebelt");
+const xdim = require("xdim");
 
 const geowarp = require("./geowarp");
 
@@ -134,7 +135,18 @@ const runTileTests = async ({
             }
 
             if (process.env.GEOWARP_WRITE_PNG) {
-              writePNGSync({ h: size, w: size, data: result.data, filepath: `./test-data/${testName}` });
+              let writeData;
+              if (out_layout === "[row][column][band]") {
+                writeData = result.data;
+              } else {
+                ({ data: writeData } = xdim.transform({
+                  data: result.data,
+                  from: out_layout,
+                  to: "[row][column][band]",
+                  sizes: { band: 3, row: size, column: size }
+                }));
+              }
+              writePNGSync({ h: size, w: size, data: writeData, filepath: `./test-data/${testName}` });
             }
           });
         });
