@@ -334,6 +334,8 @@ const geowarp = ({
                 pixelBandValue = min({ nums: values });
               }
             }
+          } else {
+            throw new Error(`[geowarp] unknown method "${method}"`);
           }
           if (round) pixelBandValue = Math.round(pixelBandValue);
           update({
