@@ -92,10 +92,10 @@ const geowarp = ({
   theoretical_min, // minimum theoretical value (e.g., 0 for unsigned integer arrays)
   theoretical_max // maximum values (e.g., 255 for 8-bit unsigned integer arrays)
 }) => {
-  if (debug_level) console.log("[geowarp] starting");
+  if (debug_level >= 1) console.log("[geowarp] starting");
 
   const sameSRS = in_srs === out_srs;
-  if (debug_level) console.log("[geowarp] input and output srs are the same:", sameSRS);
+  if (debug_level >= 1) console.log("[geowarp] input and output srs are the same:", sameSRS);
 
   if (!sameSRS && typeof reproject !== "function") {
     throw new Error("[geowarp] you must specify a reproject function");
@@ -109,35 +109,35 @@ const geowarp = ({
   if (!out_layout) out_layout = in_layout;
 
   const num_bands = in_data.length;
-  if (debug_level) console.log("[geowarp] number of bands in source data:", num_bands);
+  if (debug_level >= 1) console.log("[geowarp] number of bands in source data:", num_bands);
 
-  if (debug_level) console.log("[geowarp] method:", method);
+  if (debug_level >= 1) console.log("[geowarp] method:", method);
   const [in_xmin, in_ymin, in_xmax, in_ymax] = in_bbox;
 
   const in_pixel_height = (in_ymax - in_ymin) / in_height;
   const in_pixel_width = (in_xmax - in_xmin) / in_width;
-  if (debug_level) console.log("[geowarp] pixel height of source data:", in_pixel_height);
-  if (debug_level) console.log("[geowarp] pixel width of source data:", in_pixel_width);
+  if (debug_level >= 1) console.log("[geowarp] pixel height of source data:", in_pixel_height);
+  if (debug_level >= 1) console.log("[geowarp] pixel width of source data:", in_pixel_width);
 
   const [out_xmin, out_ymin, out_xmax, out_ymax] = out_bbox;
-  if (debug_level) console.log("[geowarp] out_xmin:", out_xmin);
-  if (debug_level) console.log("[geowarp] out_ymin:", out_ymin);
-  if (debug_level) console.log("[geowarp] out_xmax:", out_xmax);
-  if (debug_level) console.log("[geowarp] out_ymax:", out_ymax);
+  if (debug_level >= 1) console.log("[geowarp] out_xmin:", out_xmin);
+  if (debug_level >= 1) console.log("[geowarp] out_ymin:", out_ymin);
+  if (debug_level >= 1) console.log("[geowarp] out_xmax:", out_xmax);
+  if (debug_level >= 1) console.log("[geowarp] out_ymax:", out_ymax);
 
   const out_pixel_height = (out_ymax - out_ymin) / out_height;
   const out_pixel_width = (out_xmax - out_xmin) / out_width;
-  if (debug_level) console.log("[geowarp] out_pixel_height:", out_pixel_height);
-  if (debug_level) console.log("[geowarp] out_pixel_width:", out_pixel_width);
+  if (debug_level >= 1) console.log("[geowarp] out_pixel_height:", out_pixel_height);
+  if (debug_level >= 1) console.log("[geowarp] out_pixel_width:", out_pixel_width);
 
   if (theoretical_min === undefined || theoretical_max === undefined) {
     try {
       const data_constructor = in_data[0].constructor.name;
-      if (debug_level) console.log("[geowarp] data_constructor:", data_constructor);
+      if (debug_level >= 1) console.log("[geowarp] data_constructor:", data_constructor);
       if (theoretical_min === undefined) theoretical_min = getTheoreticalMin(data_constructor);
       if (theoretical_max === undefined) theoretical_max = getTheoreticalMax(data_constructor);
-      if (debug_level) console.log("[geowarp] theoretical_min:", theoretical_min);
-      if (debug_level) console.log("[geowarp] theoretical_max:", theoretical_max);
+      if (debug_level >= 1) console.log("[geowarp] theoretical_min:", theoretical_min);
+      if (debug_level >= 1) console.log("[geowarp] theoretical_max:", theoretical_max);
     } catch (error) {
       // we want to log an error if it happens
       // even if we don't strictly need it to succeed
@@ -347,7 +347,7 @@ const geowarp = ({
     }
   }
 
-  if (debug_level) console.log("[geowarp] finishing");
+  if (debug_level >= 1) console.log("[geowarp] finishing");
   return { data: out_data };
 };
 
