@@ -44,7 +44,8 @@
     "geotiff-read-bbox": "*",
     "pngjs": "^6.0.0",
     "proj4-fully-loaded": "^0.0.2",
-    "reproject-bbox": "^0.0.1"
+    "reproject-bbox": "^0.0.1",
+    "write-image": "^0.0.5"
   },
   "dependencies": {
     "fast-max": "^0.3.0",

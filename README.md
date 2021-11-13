@@ -48,6 +48,13 @@ const result = geowarp({
   // how many pixels tall the input data is
   in_height: 1015,
 
+  // optional array for sampling and/or changing band order
+  // array is the order of the bands in the output with numbers
+  // indicating the band index in the input (starting at zero)
+  // for example, [13, 12, 11] skips the first 11 bands,
+  // and takes the 12th, 13th, and 14th in reverse order
+  out_bands: [13, 12, 11],
+
   // bounding box of output
   // this is the space that you want to paint
   // in same format as in_bbox
