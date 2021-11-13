@@ -105,9 +105,10 @@ dist
 
 # other files
 .DS_Store
-
+pnpm-lock.yaml
 tmp/
 test-data/
 
 # backup files
 *bak*
+
