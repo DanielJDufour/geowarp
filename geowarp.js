@@ -281,14 +281,18 @@ const geowarp = ({
 
         // convert to bbox of input coordinate system
         const bbox_in_srs = sameSRS ? [left, bottom, right, top] : [...reproject([left, bottom]), ...reproject([right, top])];
-        if (debug_level >= 3) console.log("bbox_in_srs:", bbox_in_srs);
+        if (debug_level >= 3) console.log("[geowarp] bbox_in_srs:", bbox_in_srs);
         const [xmin_in_srs, ymin_in_srs, xmax_in_srs, ymax_in_srs] = bbox_in_srs;
 
         // convert bbox in input srs to raster pixels
         const leftInRasterPixels = (xmin_in_srs - in_xmin) / in_pixel_width;
+        if (debug_level >= 4) console.log("[geowarp] leftInRasterPixels:", leftInRasterPixels);
         const rightInRasterPixels = (xmax_in_srs - in_xmin) / in_pixel_width;
+        if (debug_level >= 4) console.log("[geowarp] rightInRasterPixels:", rightInRasterPixels);
         const topInRasterPixels = (in_ymax - ymax_in_srs) / in_pixel_height;
+        if (debug_level >= 4) console.log("[geowarp] topInRasterPixels:", topInRasterPixels);
         const bottomInRasterPixels = (in_ymax - ymin_in_srs) / in_pixel_height;
+        if (debug_level >= 4) console.log("[geowarp] bottomInRasterPixels:", bottomInRasterPixels);
 
         const leftSample = Math.round(leftInRasterPixels);
         const rightSample = Math.round(rightInRasterPixels);
@@ -302,8 +306,8 @@ const geowarp = ({
             sizes: in_sizes,
             rect: {
               band: [b, b],
-              row: [topSample, bottomSample],
-              column: [leftSample, rightSample]
+              row: [topSample, Math.max(topSample, bottomSample - 1)],
+              column: [leftSample, Math.max(leftSample, rightSample - 1)]
             }
           });
 
