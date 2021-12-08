@@ -95,6 +95,14 @@ const result = geowarp({
   // if in_data is an array of typed arrays, this will be automatically calculated 
   theoretical_max: 255
 });
-
-// result.data is a 3-dimensional array of pixel values broken down by row then column then band as defined by out_layout
+```
+result is
+```js
+{
+  // a multi-dimensional array of pixel values with the structure defined by out_layout
+  data: [
+    [ [...], [...], [...] ], // band 1
+    // ...
+  ]
+}
 ```
