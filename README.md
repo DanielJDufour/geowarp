@@ -68,6 +68,10 @@ const result = geowarp({
   // could be 4326 or "EPSG:4326"
   out_srs: 3857,
 
+  // number of bands in the output
+  // defaults to the number of input bands
+  out_pixel_depth: 3,
+
   // height of the output image in pixels
   out_height: 256,
 
@@ -94,7 +98,19 @@ const result = geowarp({
   // the highest possible pixel value considering the bit-depth of the data
   // this is used to speed up the max and mode-max resampling
   // if in_data is an array of typed arrays, this will be automatically calculated 
-  theoretical_max: 255
+  theoretical_max: 255,
+
+  // optional
+  // band math expression that maps a pixel from the read bands to the output
+  expr: ({ pixel }) => {
+    // clamp values above 100
+    return pixel.map(value => Math.min(value, 100));
+  },
+
+  // optional
+  // array of band indexes to read from
+  // use this if your expr function only uses select bands
+  read_bands: [0, 1, 2]
 });
 ```
 result is
