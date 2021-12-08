@@ -1,5 +1,6 @@
 const fastMax = require("fast-max");
 const fastMin = require("fast-min");
+const getDepth = require("get-depth");
 const getTheoreticalMax = require("typed-array-ranges/get-max");
 const getTheoreticalMin = require("typed-array-ranges/get-min");
 const fasterMedian = require("faster-median");
@@ -73,6 +74,10 @@ const mode = (nums, no_data) => {
   }
 };
 
+// To-Do
+// if out_bands have band repeated like [0, 0, 0] and layout is "[band]..."
+// should just copy a reference vs. reselecting again
+// or maybe reorganize like { in_band: out_bands }
 const geowarp = ({
   debug_level = 0,
   reproject, // equivalent of proj4(source, target).inverse()
@@ -97,10 +102,10 @@ const geowarp = ({
 }) => {
   if (debug_level >= 1) console.log("[geowarp] starting");
 
-  const sameSRS = in_srs === out_srs;
-  if (debug_level >= 1) console.log("[geowarp] input and output srs are the same:", sameSRS);
+  const same_srs = in_srs === out_srs;
+  if (debug_level >= 1) console.log("[geowarp] input and output srs are the same:", same_srs);
 
-  if (!sameSRS && typeof reproject !== "function") {
+  if (!same_srs && typeof reproject !== "function") {
     throw new Error("[geowarp] you must specify a reproject function");
   }
 
@@ -111,13 +116,34 @@ const geowarp = ({
   // just return the data in the same layout as it is provided
   if (!out_layout) out_layout = in_layout;
 
-  // need to rework to handle[rgbargbargba...]
-  // should we use guess-image-layout?
-  const num_bands = in_data.length;
+  let num_bands;
+  if (in_layout.startsWith("[band]")) {
+    num_bands = in_data.length;
+  } else {
+    const depth = getDepth(in_data);
+    if (depth === 1) {
+      // could be [row,column,band] or [band,row,column]
+      num_bands = in_data.length / in_height / in_width;
+    } else if (depth === 2) {
+      // probably [row,column][band]
+      num_bands = in_data[0].length;
+    } else if (depth === 3) {
+      // probably [row][column][band]
+      num_bands = in_data[0][0].length;
+    }
+  }
+
   if (debug_level >= 1) console.log("[geowarp] number of bands in source data:", num_bands);
 
   if (!out_bands) out_bands = range(num_bands);
   if (debug_level >= 1) console.log("[geowarp] out_bands:", out_bands);
+
+  // just resizing an image without reprojection
+  if (same_srs && !in_bbox && !out_bbox) {
+    out_srs = in_srs = null;
+    in_bbox = [0, 0, in_width, in_height];
+    out_bbox = [0, 0, out_width, out_height];
+  }
 
   if (debug_level >= 1) console.log("[geowarp] method:", method);
   const [in_xmin, in_ymin, in_xmax, in_ymax] = in_bbox;
@@ -177,7 +203,7 @@ const geowarp = ({
       for (let c = 0; c < out_width; c++) {
         const x = out_xmin + out_pixel_width * c;
         const pt_out_srs = [x, y];
-        const [x_in_srs, y_in_srs] = sameSRS ? pt_out_srs : reproject(pt_out_srs);
+        const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : reproject(pt_out_srs);
         const xInRasterPixels = Math.round((x_in_srs - in_xmin) / in_pixel_width);
         const yInRasterPixels = Math.round((in_ymax - y_in_srs) / in_pixel_height);
         for (let out_band = 0; out_band < out_bands.length; out_band++) {
@@ -209,7 +235,7 @@ const geowarp = ({
       for (let c = 0; c < out_width; c++) {
         const x = out_xmin + out_pixel_width * c;
         const pt_out_srs = [x, y];
-        const [x_in_srs, y_in_srs] = sameSRS ? pt_out_srs : reproject(pt_out_srs);
+        const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : reproject(pt_out_srs);
 
         const xInRasterPixels = (x_in_srs - in_xmin) / in_pixel_width;
         const yInRasterPixels = (in_ymax - y_in_srs) / in_pixel_height;
@@ -290,7 +316,7 @@ const geowarp = ({
         // top, left, bottom, right is the sample area in the coordinate system of the output
 
         // convert to bbox of input coordinate system
-        const bbox_in_srs = sameSRS ? [left, bottom, right, top] : [...reproject([left, bottom]), ...reproject([right, top])];
+        const bbox_in_srs = same_srs ? [left, bottom, right, top] : [...reproject([left, bottom]), ...reproject([right, top])];
         if (debug_level >= 3) console.log("[geowarp] bbox_in_srs:", bbox_in_srs);
         const [xmin_in_srs, ymin_in_srs, xmax_in_srs, ymax_in_srs] = bbox_in_srs;
 
@@ -323,7 +349,9 @@ const geowarp = ({
           });
 
           let pixelBandValue = null;
-          if (method === "max") {
+          if (typeof method === "function") {
+            pixelBandValue = method({ values });
+          } else if (method === "max") {
             pixelBandValue = max({ nums: values, in_no_data, out_no_data, theoretical_max: undefined });
           } else if (method === "mean") {
             pixelBandValue = mean(values, in_no_data, out_no_data);
@@ -363,7 +391,7 @@ const geowarp = ({
   }
 
   if (debug_level >= 1) console.log("[geowarp] finishing");
-  return { data: out_data };
+  return { data: out_data, out_bands, out_layout };
 };
 
 if (typeof module === "object") module.exports = geowarp;

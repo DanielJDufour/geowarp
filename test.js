@@ -16,23 +16,6 @@ const geowarp = require("./geowarp");
 
 const exit = process.exit;
 
-const convertValuesToFrameData = values => {
-  const imageHeight = values.length;
-  const imageWidth = values[0].length;
-  const numBands = values[0][0].length;
-  const frameData = Buffer.alloc(imageHeight * imageWidth * 4);
-  for (let y = 0; y < imageHeight; y++) {
-    for (let x = 0; x < imageWidth; x++) {
-      const i = y * imageWidth * 4 + x * 4;
-      frameData[i] = values[y][x][0];
-      frameData[i + 1] = values[y][x][1];
-      frameData[i + 2] = values[y][x][2];
-      frameData[i + 3] = numBands === 4 ? values[y][x][3] : 255;
-    }
-  }
-  return frameData;
-};
-
 const writePNGSync = ({ h, w, data, filepath }) => {
   const { data: buf } = writeImage({ data, height: h, format: "PNG", width: w });
   fs.writeFileSync(`${filepath}.png`, buf);
@@ -106,7 +89,7 @@ const runTileTests = async ({
                 out_srs: 3857,
                 out_height: size,
                 out_width: size,
-                method,
+                method: method === "first" ? ({ values }) => values[0] : method,
                 round: true
               });
 
@@ -117,7 +100,7 @@ const runTileTests = async ({
                 eq(result.data[0][0].length, out_bands?.length ?? 3);
                 counts = count(result.data, { depth: 2 });
                 const top = Object.entries(counts).sort((a, b) => Math.sign(b - a))[0][0];
-                if (!out_bands) {
+                if (method !== "first" && !out_bands) {
                   try {
                     eq(most_common_pixels.includes(top), true);
                   } catch (error) {
@@ -165,7 +148,7 @@ const runTileTests = async ({
     z: 8,
     sizes: [64, 256, 512],
     filename: "wildfires.tiff",
-    methods: ["bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
+    methods: ["first", "bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
     out_bands_array: [undefined, [0], [2, 1, 0]],
     most_common_pixels: ["0,0,0", "11,16,8", "18,26,11", "18,26,12", "13,18,9", "22,30,17"]
   },
@@ -175,7 +158,7 @@ const runTileTests = async ({
     z: 14,
     sizes: [64, 256, 512],
     filename: "SkySat_Freeport_s03_20170831T162740Z3.tif",
-    methods: ["bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
+    methods: ["first", "bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
     out_bands_array: [undefined, [0], [2, 1, 0]],
     most_common_pixels: [
       "121,110,99",
