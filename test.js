@@ -23,6 +23,95 @@ const writePNGSync = ({ h, w, data, filepath }) => {
   fs.writeFileSync(`${filepath}.png`, buf);
 };
 
+test("reproject without clipping", async ({ eq }) => {
+  const filename = "wildfires.tiff";
+  const filepath = path.resolve(__dirname, "./test-data", filename);
+  const geotiff = await GeoTIFF.fromFile(filepath);
+  const image = await geotiff.getImage(0);
+  const geoKeys = image.getGeoKeys();
+  const { GeographicTypeGeoKey, ProjectedCSTypeGeoKey } = geoKeys;
+  const rasters = await image.readRasters();
+  const height = image.getHeight();
+  const width = image.getWidth();
+  const in_srs = ProjectedCSTypeGeoKey || GeographicTypeGeoKey;
+  const [xmin, ymax] = image.getOrigin();
+  const [resolutionX, resolutionY] = image.getResolution();
+  const ymin = ymax - height * Math.abs(resolutionY);
+  const xmax = xmin + width * Math.abs(resolutionX);
+  const in_bbox = [xmin, ymin, xmax, ymax];
+  const out_srs = "EPSG:26910"; // NAD83 / UTM zone 10N
+  const { forward, inverse } = proj4("EPSG:" + in_srs, out_srs);
+  const { data } = geowarp({
+    in_bbox,
+    in_data: rasters,
+    in_layout: "[band][row,column]",
+    in_srs,
+    in_height: height,
+    in_width: width,
+    out_height: height,
+    out_width: width,
+    out_layout: "[band][row][column]",
+    out_srs,
+    forward,
+    inverse
+  });
+
+  if (process.env.GEOWARP_WRITE_PNG) {
+    writePNGSync({ h: height, w: width, data, filepath: `./test-data/reproject-without-clipping.tif` });
+  }
+  eq(data.length, 3); // check band count
+});
+
+test("bug: reprojecting to EPSG:26910", async ({ eq }) => {
+  const filename = "wildfires.tiff";
+  const filepath = path.resolve(__dirname, "./test-data", filename);
+  const geotiff = await GeoTIFF.fromFile(filepath);
+  const image = await geotiff.getImage(0);
+  const geoKeys = image.getGeoKeys();
+  const { GeographicTypeGeoKey, ProjectedCSTypeGeoKey } = geoKeys;
+  const rasters = await image.readRasters();
+  const height = image.getHeight();
+  const width = image.getWidth();
+  const in_srs = ProjectedCSTypeGeoKey || GeographicTypeGeoKey;
+  const [xmin, ymax] = image.getOrigin();
+  const [resolutionX, resolutionY] = image.getResolution();
+  const ymin = ymax - height * Math.abs(resolutionY);
+  const xmax = xmin + width * Math.abs(resolutionX);
+  const in_bbox = [xmin, ymin, xmax, ymax];
+  const out_srs = 26910; // NAD83 / UTM zone 10N
+  const factor = 0.05;
+  let out_bbox = reprojectBoundingBox({ bbox: [xmin, ymin, xmax, ymax], from: in_srs, to: out_srs });
+  // change out_bbox to top left quarter
+  out_bbox = [
+    out_bbox[0],
+    Math.round(out_bbox[3] - (out_bbox[3] - out_bbox[1]) * factor),
+    Math.round(out_bbox[0] + (out_bbox[2] - out_bbox[0]) * factor),
+    out_bbox[3]
+  ];
+  const { inverse } = proj4("EPSG:" + in_srs, "EPSG:" + out_srs);
+  const { data } = geowarp({
+    in_bbox,
+    in_data: rasters,
+    in_layout: "[band][row,column]",
+    in_srs,
+    in_height: height,
+    in_width: width,
+    out_bbox,
+    out_height: height,
+    out_width: width,
+    out_layout: "[band][row][column]",
+    out_srs,
+    inverse
+  });
+
+  if (process.env.GEOWARP_WRITE_PNG) {
+    const filepath = "./test-data/wildfires-26910";
+    writePNGSync({ h: height, w: width, data, filepath });
+    console.log("wrote:", filepath);
+  }
+  eq(data.length, 3); // check band count
+});
+
 const readTile = async ({ x, y, z, filename }) => {
   const filepath = path.resolve(__dirname, "./test-data", filename);
   const bbox4326 = tilebelt.tileToBBOX([x, y, z]);
@@ -255,7 +344,10 @@ const runTileTests = async ({
       method,
       round: true
     });
-    eq(result.data.every(n => n >= 0 && n <= 1), true);
+    eq(
+      result.data.every(n => n >= 0 && n <= 1),
+      true
+    );
     eq(result.read_bands, [0, 1]);
   });
 });

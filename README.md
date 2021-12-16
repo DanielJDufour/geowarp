@@ -16,9 +16,13 @@ const result = geowarp({
   // set debug_level to zero to turn off console logging
   debug_level: 2,
 
+  // reproject from an [x, y] point in the input spatial reference system
+  // to an [x, y] point in the output spatial reference system
+  forward: proj4("EPSG:" + in_srs, "EPSG:3857").forward,
+
   // reproject from an [x, y] point in the output spatial reference system
   // to an [x, y] point in the input spatial reference system
-  reproject: proj4("EPSG:" + 3857, "EPSG:" + in_srs).forward,
+  inverse: proj4("EPSG:" + in_srs, "EPSG:3857").inverse,
 
   // two-dimensional array of pixel data organized by band
   // usually [ r, g, b ] or [ r, g, b, a ]

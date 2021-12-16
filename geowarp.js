@@ -6,6 +6,8 @@ const getTheoreticalMin = require("typed-array-ranges/get-min");
 const fasterMedian = require("faster-median");
 const xdim = require("xdim");
 
+const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
 const uniq = arr => Array.from(new Set(arr)).sort((a, b) => b - a);
 
 const range = ct => new Array(ct).fill(0).map((_, i) => i);
@@ -55,7 +57,7 @@ const mode = (nums, no_data) => {
       return undefined;
     default:
       const counts = {};
-      if (no_data) {
+      if (no_data) {q
         for (let i = 0; i < nums.length; i++) {
           const n = nums[i];
           if (n !== no_data) {
@@ -76,11 +78,28 @@ const mode = (nums, no_data) => {
   }
 };
 
-const geowarp = ({
+// taken from reproject-bbox
+// because don't want proj4 dependency
+const reprojectBoundingBox = ({ bbox, forward }) => {
+  const [xmin, ymin, xmax, ymax] = bbox;
+
+  const topleft = forward([xmin, ymax]);
+  const topright = forward([xmax, ymax]);
+  const bottomleft = forward([xmin, ymin]);
+  const bottomright = forward([xmax, ymin]);
+
+  const corners = [topleft, topright, bottomleft, bottomright];
+
+  const xs = corners.map(corner => corner[0]);
+  const ys = corners.map(corner => corner[1]);
+
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+};
+
+const geowarp = function geowarp({
   debug_level = 0,
-  reproject, // equivalent of proj4(source, target).inverse()
   in_data,
-  in_bbox,
+  in_bbox = undefined,
   in_layout = "[band][row,column]",
   in_srs,
   in_height,
@@ -93,7 +112,7 @@ const geowarp = ({
   out_pixel_depth, // number of output bands
   out_pixel_height, // optional, automatically calculated from out_bbox
   out_pixel_width, // optional, automatically calculated from out_bbox
-  out_bbox,
+  out_bbox = null,
   out_layout,
   out_srs,
   out_width = 256,
@@ -104,14 +123,27 @@ const geowarp = ({
   expr = undefined, // band expression function
   round = false, // whether to round output
   theoretical_min, // minimum theoretical value (e.g., 0 for unsigned integer arrays)
-  theoretical_max // maximum values (e.g., 255 for 8-bit unsigned integer arrays)
-}) => {
+  theoretical_max, // maximum values (e.g., 255 for 8-bit unsigned integer arrays),
+  inverse, // function to reproject [x, y] point from out_srs back to in_srs
+  forward // function to reproject [x, y] point from in_srs to out_srs
+}) {
   if (debug_level >= 1) console.log("[geowarp] starting");
 
   const same_srs = in_srs === out_srs;
   if (debug_level >= 1) console.log("[geowarp] input and output srs are the same:", same_srs);
 
-  if (!same_srs && typeof reproject !== "function") {
+  // support for deprecated alias of inverse
+  inverse ??= arguments[0].reproject;
+
+  if (!same_srs) {
+    if (!in_bbox) throw new Error("[geowarp] can't reproject without in_bbox");
+    if (!out_bbox) {
+      if (forward) out_bbox = reprojectBoundingBox({ bbox: in_bbox, forward });
+      else throw new Error("[geowarp] must specify out_bbox or forward");
+    }
+  }
+
+  if (!same_srs && typeof inverse !== "function") {
     throw new Error("[geowarp] you must specify a reproject function");
   }
 
@@ -161,7 +193,7 @@ const geowarp = ({
   out_pixel_depth ??= out_bands?.length ?? read_bands?.length ?? in_pixel_depth;
 
   // just resizing an image without reprojection
-  if (same_srs && !in_bbox && !out_bbox) {
+  if (same_srs && eq(in_bbox, out_bbox)) {
     out_srs = in_srs = null;
     in_bbox = [0, 0, in_width, in_height];
     out_bbox = [0, 0, out_width, out_height];
@@ -190,8 +222,8 @@ const geowarp = ({
     try {
       const data_constructor = in_data[0].constructor.name;
       if (debug_level >= 1) console.log("[geowarp] data_constructor:", data_constructor);
-      if (theoretical_min === undefined) theoretical_min = getTheoreticalMin(data_constructor);
-      if (theoretical_max === undefined) theoretical_max = getTheoreticalMax(data_constructor);
+      theoretical_min ??= getTheoreticalMin(data_constructor);
+      theoretical_max ??= getTheoreticalMax(data_constructor);
       if (debug_level >= 1) console.log("[geowarp] theoretical_min:", theoretical_min);
       if (debug_level >= 1) console.log("[geowarp] theoretical_max:", theoretical_max);
     } catch (error) {
@@ -214,7 +246,12 @@ const geowarp = ({
     column: out_width
   };
 
-  const { data: out_data } = xdim.prepareData({ layout: out_layout, sizes: out_sizes });
+  // can we later on skip inserting no data pixels
+  const { data: out_data } = xdim.prepareData({
+    fill: out_no_data,
+    layout: out_layout,
+    sizes: out_sizes
+  });
 
   const update = xdim.prepareUpdate({ data: out_data, layout: out_layout, sizes: out_sizes });
 
@@ -234,7 +271,7 @@ const geowarp = ({
       for (let c = 0; c < out_width; c++) {
         const x = out_xmin + out_pixel_width * c;
         const pt_out_srs = [x, y];
-        const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : reproject(pt_out_srs);
+        const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inverse(pt_out_srs);
         const xInRasterPixels = Math.round((x_in_srs - in_xmin) / in_pixel_width);
         const yInRasterPixels = Math.round((in_ymax - y_in_srs) / in_pixel_height);
         let pixel = [];
@@ -266,7 +303,7 @@ const geowarp = ({
       for (let c = 0; c < out_width; c++) {
         const x = out_xmin + out_pixel_width * c;
         const pt_out_srs = [x, y];
-        const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : reproject(pt_out_srs);
+        const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inverse(pt_out_srs);
 
         const xInRasterPixels = (x_in_srs - in_xmin) / in_pixel_width;
         const yInRasterPixels = (in_ymax - y_in_srs) / in_pixel_height;
@@ -347,7 +384,7 @@ const geowarp = ({
         // top, left, bottom, right is the sample area in the coordinate system of the output
 
         // convert to bbox of input coordinate system
-        const bbox_in_srs = same_srs ? [left, bottom, right, top] : [...reproject([left, bottom]), ...reproject([right, top])];
+        const bbox_in_srs = same_srs ? [left, bottom, right, top] : [...inverse([left, bottom]), ...inverse([right, top])];
         if (debug_level >= 3) console.log("[geowarp] bbox_in_srs:", bbox_in_srs);
         const [xmin_in_srs, ymin_in_srs, xmax_in_srs, ymax_in_srs] = bbox_in_srs;
 
@@ -361,60 +398,73 @@ const geowarp = ({
         const bottomInRasterPixels = (in_ymax - ymin_in_srs) / in_pixel_height;
         if (debug_level >= 4) console.log("[geowarp] bottomInRasterPixels:", bottomInRasterPixels);
 
-        const leftSample = Math.round(leftInRasterPixels);
-        const rightSample = Math.round(rightInRasterPixels);
-        const topSample = Math.round(topInRasterPixels);
-        const bottomSample = Math.round(bottomInRasterPixels);
-        let pixel = [];
-        for (let i = 0; i < read_bands.length; i++) {
-          const read_band = read_bands[i];
-          const { data: values } = xdim.clip({
-            data: in_data,
-            flat: true,
-            layout: in_layout,
-            sizes: in_sizes,
-            rect: {
-              band: [read_band, read_band],
-              row: [topSample, Math.max(topSample, bottomSample - 1)],
-              column: [leftSample, Math.max(leftSample, rightSample - 1)]
-            }
-          });
+        // round and make sure leftSample isn't less than zero
+        let leftSample = Math.round(leftInRasterPixels);
+        let rightSample = Math.round(rightInRasterPixels);
+        let topSample = Math.round(topInRasterPixels);
+        let bottomSample = Math.round(bottomInRasterPixels);
 
-          let pixelBandValue = null;
-          if (typeof method === "function") {
-            pixelBandValue = method({ values });
-          } else if (method === "max") {
-            pixelBandValue = max({ nums: values, in_no_data, out_no_data, theoretical_max: undefined });
-          } else if (method === "mean") {
-            pixelBandValue = mean(values, in_no_data, out_no_data);
-          } else if (method === "median") {
-            pixelBandValue = median({ nums: values, in_no_data, out_no_data });
-          } else if (method === "min") {
-            pixelBandValue = min({ nums: values, in_no_data, out_no_data, theoretical_min: undefined });
-          } else if (method.startsWith("mode")) {
-            const modes = mode(values);
-            const len = modes.length;
-            if (len === 1) {
-              pixelBandValue = modes[0];
-            } else {
-              if (method === "mode") {
-                pixelBandValue = modes[0];
-              } else if (method === "mode-max") {
-                pixelBandValue = max({ nums: values });
-              } else if (method === "mode-mean") {
-                pixelBandValue = mean(values);
-              } else if (method === "mode-median") {
-                pixelBandValue = median({ nums: values });
-              } else if (method === "mode-min") {
-                pixelBandValue = min({ nums: values });
+        let pixel = [];
+        if (leftSample >= in_width || rightSample < 0 || topSample < 0 || bottomSample >= in_height) {
+          pixel = new Array(read_bands.length).fill(in_no_data);
+        } else {
+          // clamp edges to prevent clipping outside bounds
+          leftSample = Math.max(0, leftSample);
+          rightSample = Math.min(rightSample, in_width);
+          topSample = Math.max(0, topSample);
+          bottomSample = Math.min(bottomSample, in_height);
+
+          for (let i = 0; i < read_bands.length; i++) {
+            const read_band = read_bands[i];
+            const { data: values } = xdim.clip({
+              data: in_data,
+              flat: true,
+              layout: in_layout,
+              sizes: in_sizes,
+              rect: {
+                band: [read_band, read_band],
+                row: [topSample, Math.max(topSample, bottomSample - 1)],
+                column: [leftSample, Math.max(leftSample, rightSample - 1)]
               }
+            });
+
+            let pixelBandValue = null;
+            if (typeof method === "function") {
+              pixelBandValue = method({ values });
+            } else if (method === "max") {
+              pixelBandValue = max({ nums: values, in_no_data, out_no_data, theoretical_max: undefined });
+            } else if (method === "mean") {
+              pixelBandValue = mean(values, in_no_data, out_no_data);
+            } else if (method === "median") {
+              pixelBandValue = median({ nums: values, in_no_data, out_no_data });
+            } else if (method === "min") {
+              pixelBandValue = min({ nums: values, in_no_data, out_no_data, theoretical_min: undefined });
+            } else if (method.startsWith("mode")) {
+              const modes = mode(values);
+              const len = modes.length;
+              if (len === 1) {
+                pixelBandValue = modes[0];
+              } else {
+                if (method === "mode") {
+                  pixelBandValue = modes[0];
+                } else if (method === "mode-max") {
+                  pixelBandValue = max({ nums: values });
+                } else if (method === "mode-mean") {
+                  pixelBandValue = mean(values);
+                } else if (method === "mode-median") {
+                  pixelBandValue = median({ nums: values });
+                } else if (method === "mode-min") {
+                  pixelBandValue = min({ nums: values });
+                }
+              }
+            } else {
+              throw new Error(`[geowarp] unknown method "${method}"`);
             }
-          } else {
-            throw new Error(`[geowarp] unknown method "${method}"`);
+            if (round) pixelBandValue = Math.round(pixelBandValue);
+            pixel.push(pixelBandValue);
           }
-          if (round) pixelBandValue = Math.round(pixelBandValue);
-          pixel.push(pixelBandValue);
         }
+
         if (process) pixel = process({ pixel });
         insert({ row: r, column: c, pixel });
       }
@@ -422,7 +472,14 @@ const geowarp = ({
   }
 
   if (debug_level >= 1) console.log("[geowarp] finishing");
-  return { data: out_data, out_bands, out_layout, read_bands };
+  return {
+    data: out_data,
+    out_bands,
+    out_layout,
+    out_pixel_height,
+    out_pixel_width,
+    read_bands
+  };
 };
 
 if (typeof module === "object") module.exports = geowarp;
