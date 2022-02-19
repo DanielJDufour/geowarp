@@ -9,7 +9,7 @@
   "scripts": {
     "clean": "rm -fr ./test-data/*.png",
     "format": "npx prettier --arrow-parens=avoid --print-width=160 --trailing-comma=none --write *.js",
-    "setup": "node setup.js",
+    "setup": "cd test-data && ./setup.sh",
     "test": "npm run clean && node test.js"
   },
   "repository": {
@@ -39,19 +39,22 @@
   "devDependencies": {
     "@mapbox/tilebelt": "^1.0.2",
     "fast-counter": "*",
+    "find-and-read": "^1.1.0",
     "flug": "^2.2.0",
     "geotiff": "^1.0.4",
     "geotiff-read-bbox": "*",
     "pngjs": "^6.0.0",
     "proj4-fully-loaded": "^0.0.2",
-    "reproject-bbox": "^0.0.1",
     "write-image": "^0.0.5"
   },
   "dependencies": {
+    "dufour-peyton-intersection": "^0.0.1",
     "fast-max": "^0.3.0",
     "fast-min": "^0.2.0",
     "faster-median": "^0.1.0",
     "get-depth": "^0.0.3",
+    "reproject-bbox": "^0.3.0",
+    "reproject-geojson": "^0.1.0",
     "typed-array-ranges": "^0.0.0",
     "xdim": "^1.5.2"
   }

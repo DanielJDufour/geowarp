@@ -1,15 +1,14 @@
 const fs = require("fs");
+const findAndRead = require("find-and-read");
 const path = require("path");
 
 const count = require("fast-counter");
 const test = require("flug");
-const { PNG } = require("pngjs");
 const GeoTIFF = require("geotiff");
 const readBoundingBox = require("geotiff-read-bbox");
 const proj4 = require("proj4-fully-loaded");
 const reprojectBoundingBox = require("reproject-bbox");
 const tilebelt = require("@mapbox/tilebelt");
-const xdim = require("xdim");
 const writeImage = require("write-image");
 
 const geowarp = require("./geowarp");
@@ -22,6 +21,49 @@ const writePNGSync = ({ h, w, data, filepath }) => {
   const { data: buf } = writeImage({ data, height: h, format: "PNG", width: w });
   fs.writeFileSync(`${filepath}.png`, buf);
 };
+
+["near", "median", "bilinear"].forEach(method => {
+  test("cutline " + method, async ({ eq }) => {
+    const cutline = JSON.parse(findAndRead("sri-lanka-hi-res.geojson", { encoding: "utf-8" }));
+    const filename = "gadas.tif";
+    const filepath = path.resolve(__dirname, "./test-data", filename);
+    const geotiff = await GeoTIFF.fromFile(filepath);
+    const image = await geotiff.getImage(0);
+    const rasters = await image.readRasters();
+    const in_bbox = image.getBoundingBox();
+    const height = image.getHeight();
+    const width = image.getWidth();
+    // ProjectedCSTypeGeoKey says 32767, but PCSCitationGeoKey says ESRI PE String = 3857.esriwkt
+    const in_srs = 3857;
+    const out_srs = "EPSG:5234"; // Kandawala / Sri Lanka Grid
+    const { forward, inverse } = proj4("EPSG:" + in_srs, out_srs);
+
+    const { data } = geowarp({
+      debug_level: 2,
+      in_bbox,
+      in_data: rasters,
+      in_layout: "[band][row,column]",
+      in_srs,
+      in_height: height,
+      in_width: width,
+      out_height: height,
+      out_width: width,
+      out_layout: "[band][row][column]",
+      out_srs,
+      forward,
+      inverse,
+      cutline,
+      cutline_srs: 4326,
+      cutline_forward: proj4("EPSG:4326", out_srs).forward,
+      method
+    });
+
+    if (process.env.GEOWARP_WRITE_PNG) {
+      writePNGSync({ h: height, w: width, data, filepath: `./test-data/gadas-cutline-` + method });
+    }
+    eq(data.length, 4); // check band count
+  });
+});
 
 test("reproject without clipping", async ({ eq }) => {
   const filename = "wildfires.tiff";

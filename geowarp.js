@@ -1,9 +1,12 @@
+const dufour_peyton_intersection = require("dufour-peyton-intersection");
 const fastMax = require("fast-max");
 const fastMin = require("fast-min");
 const getDepth = require("get-depth");
 const getTheoreticalMax = require("typed-array-ranges/get-max");
 const getTheoreticalMin = require("typed-array-ranges/get-min");
 const fasterMedian = require("faster-median");
+const reprojectBoundingBox = require("reproject-bbox/pluggable");
+const reprojectGeoJSON = require("reproject-geojson/pluggable");
 const xdim = require("xdim");
 
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -57,7 +60,7 @@ const mode = (nums, no_data) => {
       return undefined;
     default:
       const counts = {};
-      if (no_data) {q
+      if (no_data) {
         for (let i = 0; i < nums.length; i++) {
           const n = nums[i];
           if (n !== no_data) {
@@ -76,24 +79,6 @@ const mode = (nums, no_data) => {
       const count = items.sort((a, b) => Math.sign(b.count - a.count))[0].count;
       return items.filter(it => it.count === count).map(it => it.n);
   }
-};
-
-// taken from reproject-bbox
-// because don't want proj4 dependency
-const reprojectBoundingBox = ({ bbox, forward }) => {
-  const [xmin, ymin, xmax, ymax] = bbox;
-
-  const topleft = forward([xmin, ymax]);
-  const topright = forward([xmax, ymax]);
-  const bottomleft = forward([xmin, ymin]);
-  const bottomright = forward([xmax, ymin]);
-
-  const corners = [topleft, topright, bottomleft, bottomright];
-
-  const xs = corners.map(corner => corner[0]);
-  const ys = corners.map(corner => corner[1]);
-
-  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 };
 
 const geowarp = function geowarp({
@@ -125,7 +110,10 @@ const geowarp = function geowarp({
   theoretical_min, // minimum theoretical value (e.g., 0 for unsigned integer arrays)
   theoretical_max, // maximum values (e.g., 255 for 8-bit unsigned integer arrays),
   inverse, // function to reproject [x, y] point from out_srs back to in_srs
-  forward // function to reproject [x, y] point from in_srs to out_srs
+  forward, // function to reproject [x, y] point from in_srs to out_srs
+  cutline, // polygon or polygons defining areas to cut out (everything outside becomes no data)
+  cutline_srs, // spatial reference system of the cutline
+  cutline_forward // function to reproject [x, y] point from cutline_srs to out_srs
 }) {
   if (debug_level >= 1) console.log("[geowarp] starting");
 
@@ -138,7 +126,7 @@ const geowarp = function geowarp({
   if (!same_srs) {
     if (!in_bbox) throw new Error("[geowarp] can't reproject without in_bbox");
     if (!out_bbox) {
-      if (forward) out_bbox = reprojectBoundingBox({ bbox: in_bbox, forward });
+      if (forward) out_bbox = reprojectBoundingBox({ bbox: in_bbox, reproject: forward });
       else throw new Error("[geowarp] must specify out_bbox or forward");
     }
   }
@@ -233,6 +221,40 @@ const geowarp = function geowarp({
     }
   }
 
+  if (![undefined, null, ""].includes(cutline_forward) && typeof cutline_forward !== "function") {
+    throw new Error("[geowarp] cutline_forward must be of type function not " + typeof cutline);
+  }
+
+  // if cutline isn't in the projection of the output, reproject it
+  const segments_by_row = new Array(out_height).fill(0).map(() => []);
+  if (cutline && cutline_srs !== out_srs) {
+    if (!cutline_forward) {
+      // fallback to checking if we can use forward
+      if (in_srs === cutline_srs) cutline_forward = forward;
+      throw new Error("[geowarp] must specify cutline_forward when cutline_srs and out_srs differ");
+    }
+    cutline = reprojectGeoJSON(cutline, { reproject: cutline_forward });
+  }
+
+  if (cutline) {
+    dufour_peyton_intersection.calculate({
+      raster_bbox: out_bbox,
+      raster_height: out_height,
+      raster_width: out_width,
+      pixel_height: out_pixel_height,
+      pixel_width: out_pixel_width,
+      geometry: cutline,
+      per_row_segment: ({ row, columns }) => {
+        segments_by_row[row].push(columns);
+      }
+    });
+  } else {
+    const full_width_row_segment = [0, out_width];
+    for (let row_index = 0; row_index < out_height; row_index++) {
+      segments_by_row[row_index].push(full_width_row_segment);
+    }
+  }
+
   const in_sizes = {
     band: in_pixel_depth,
     row: in_height,
@@ -268,107 +290,115 @@ const geowarp = function geowarp({
     const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
     for (let r = 0; r < out_height; r++) {
       const y = out_ymax - out_pixel_height * r;
-      for (let c = 0; c < out_width; c++) {
-        const x = out_xmin + out_pixel_width * c;
-        const pt_out_srs = [x, y];
-        const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inverse(pt_out_srs);
-        const xInRasterPixels = Math.round((x_in_srs - in_xmin) / in_pixel_width);
-        const yInRasterPixels = Math.round((in_ymax - y_in_srs) / in_pixel_height);
-        let pixel = [];
-        for (let i = 0; i < read_bands.length; i++) {
-          const read_band = read_bands[i];
-          let { value: pixelBandValue } = select({
-            point: {
-              band: read_band,
-              row: yInRasterPixels,
-              column: xInRasterPixels
-            }
-          });
+      const segments = segments_by_row[r];
+      for (let iseg = 0; iseg < segments.length; iseg++) {
+        const [cstart, cend] = segments[iseg];
+        for (let c = cstart; c < cend; c++) {
+          const x = out_xmin + out_pixel_width * c;
+          const pt_out_srs = [x, y];
+          const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inverse(pt_out_srs);
+          const xInRasterPixels = Math.round((x_in_srs - in_xmin) / in_pixel_width);
+          const yInRasterPixels = Math.round((in_ymax - y_in_srs) / in_pixel_height);
+          let pixel = [];
+          for (let i = 0; i < read_bands.length; i++) {
+            const read_band = read_bands[i];
+            let { value: pixelBandValue } = select({
+              point: {
+                band: read_band,
+                row: yInRasterPixels,
+                column: xInRasterPixels
+              }
+            });
 
-          if (pixelBandValue === undefined || pixelBandValue === in_no_data) {
-            pixelBandValue = out_no_data;
-          } else if (round) {
-            pixelBandValue = Math.round(pixelBandValue);
+            if (pixelBandValue === undefined || pixelBandValue === in_no_data) {
+              pixelBandValue = out_no_data;
+            } else if (round) {
+              pixelBandValue = Math.round(pixelBandValue);
+            }
+            pixel.push(pixelBandValue);
           }
-          pixel.push(pixelBandValue);
+          if (process) pixel = process({ pixel });
+          insert({ row: r, column: c, pixel });
         }
-        if (process) pixel = process({ pixel });
-        insert({ row: r, column: c, pixel });
       }
     }
   } else if (method === "bilinear") {
     const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
     for (let r = 0; r < out_height; r++) {
       const y = out_ymax - out_pixel_height * r;
-      for (let c = 0; c < out_width; c++) {
-        const x = out_xmin + out_pixel_width * c;
-        const pt_out_srs = [x, y];
-        const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inverse(pt_out_srs);
+      const segments = segments_by_row[r];
+      for (let iseg = 0; iseg < segments.length; iseg++) {
+        const [cstart, cend] = segments[iseg];
+        for (let c = cstart; c < cend; c++) {
+          const x = out_xmin + out_pixel_width * c;
+          const pt_out_srs = [x, y];
+          const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inverse(pt_out_srs);
 
-        const xInRasterPixels = (x_in_srs - in_xmin) / in_pixel_width;
-        const yInRasterPixels = (in_ymax - y_in_srs) / in_pixel_height;
+          const xInRasterPixels = (x_in_srs - in_xmin) / in_pixel_width;
+          const yInRasterPixels = (in_ymax - y_in_srs) / in_pixel_height;
 
-        // we offset in order to account for the fact that the pixel at index 0
-        // is represented by a point at x=0.5 (the center of the pixel)
-        const xInRasterPixelsOffset = xInRasterPixels - 0.5;
-        const yInRasterPixelsOffset = yInRasterPixels - 0.5;
+          // we offset in order to account for the fact that the pixel at index 0
+          // is represented by a point at x=0.5 (the center of the pixel)
+          const xInRasterPixelsOffset = xInRasterPixels - 0.5;
+          const yInRasterPixelsOffset = yInRasterPixels - 0.5;
 
-        const left = Math.floor(xInRasterPixelsOffset);
-        const right = Math.ceil(xInRasterPixelsOffset);
-        const bottom = Math.floor(yInRasterPixelsOffset);
-        const top = Math.ceil(yInRasterPixelsOffset);
+          const left = Math.floor(xInRasterPixelsOffset);
+          const right = Math.ceil(xInRasterPixelsOffset);
+          const bottom = Math.floor(yInRasterPixelsOffset);
+          const top = Math.ceil(yInRasterPixelsOffset);
 
-        const leftWeight = xInRasterPixels % 1;
-        const rightWeight = 1 - leftWeight;
-        const bottomWeight = yInRasterPixels % 1;
-        const topWeight = 1 - bottomWeight;
+          const leftWeight = xInRasterPixels % 1;
+          const rightWeight = 1 - leftWeight;
+          const bottomWeight = yInRasterPixels % 1;
+          const topWeight = 1 - bottomWeight;
 
-        let pixel = new Array();
-        for (let i = 0; i < read_bands.length; i++) {
-          const read_band = read_bands[i];
-          const { value: upperLeftValue } = select({ point: { band: read_band, row: top, column: left } });
-          const { value: upperRightValue } = select({ point: { band: read_band, row: top, column: right } });
-          const { value: lowerLeftValue } = select({ point: { band: read_band, row: bottom, column: left } });
-          const { value: lowerRightValue } = select({ point: { band: read_band, row: bottom, column: right } });
+          let pixel = new Array();
+          for (let i = 0; i < read_bands.length; i++) {
+            const read_band = read_bands[i];
+            const { value: upperLeftValue } = select({ point: { band: read_band, row: top, column: left } });
+            const { value: upperRightValue } = select({ point: { band: read_band, row: top, column: right } });
+            const { value: lowerLeftValue } = select({ point: { band: read_band, row: bottom, column: left } });
+            const { value: lowerRightValue } = select({ point: { band: read_band, row: bottom, column: right } });
 
-          let topValue;
-          if ((upperLeftValue === undefined || upperLeftValue === in_no_data) && (upperRightValue === undefined || upperRightValue === in_no_data)) {
-            // keep topValue undefined
-          } else if (upperLeftValue === undefined || upperLeftValue === in_no_data) {
-            topValue = upperRightValue;
-          } else if (upperRightValue === undefined || upperRightValue === in_no_data) {
-            topValue = upperLeftValue;
-          } else {
-            topValue = leftWeight * upperLeftValue + rightWeight * upperRightValue;
+            let topValue;
+            if ((upperLeftValue === undefined || upperLeftValue === in_no_data) && (upperRightValue === undefined || upperRightValue === in_no_data)) {
+              // keep topValue undefined
+            } else if (upperLeftValue === undefined || upperLeftValue === in_no_data) {
+              topValue = upperRightValue;
+            } else if (upperRightValue === undefined || upperRightValue === in_no_data) {
+              topValue = upperLeftValue;
+            } else {
+              topValue = leftWeight * upperLeftValue + rightWeight * upperRightValue;
+            }
+
+            let bottomValue;
+            if ((lowerLeftValue === undefined || lowerLeftValue === in_no_data) && (lowerRightValue === undefined || lowerRightValue === in_no_data)) {
+              // keep bottom value undefined
+            } else if (lowerLeftValue === undefined || lowerLeftValue === in_no_data) {
+              bottomValue = lowerRightValue;
+            } else if (upperRightValue === undefined || upperRightValue === in_no_data) {
+              bottomValue = lowerLeftValue;
+            } else {
+              bottomValue = leftWeight * lowerLeftValue + rightWeight * lowerRightValue;
+            }
+
+            let value;
+            if (topValue === undefined && bottomValue === undefined) {
+              value = out_no_data;
+            } else if (topValue === undefined) {
+              value = bottomValue;
+            } else if (bottomValue === undefined) {
+              value = topValue;
+            } else {
+              value = bottomWeight * topValue + topWeight * bottomValue;
+            }
+
+            if (round) value = Math.round(value);
+            pixel.push(value);
           }
-
-          let bottomValue;
-          if ((lowerLeftValue === undefined || lowerLeftValue === in_no_data) && (lowerRightValue === undefined || lowerRightValue === in_no_data)) {
-            // keep bottom value undefined
-          } else if (lowerLeftValue === undefined || lowerLeftValue === in_no_data) {
-            bottomValue = lowerRightValue;
-          } else if (upperRightValue === undefined || upperRightValue === in_no_data) {
-            bottomValue = lowerLeftValue;
-          } else {
-            bottomValue = leftWeight * lowerLeftValue + rightWeight * lowerRightValue;
-          }
-
-          let value;
-          if (topValue === undefined && bottomValue === undefined) {
-            value = out_no_data;
-          } else if (topValue === undefined) {
-            value = bottomValue;
-          } else if (bottomValue === undefined) {
-            value = topValue;
-          } else {
-            value = bottomWeight * topValue + topWeight * bottomValue;
-          }
-
-          if (round) value = Math.round(value);
-          pixel.push(value);
+          if (process) pixel = process({ pixel });
+          insert({ row: r, column: c, pixel });
         }
-        if (process) pixel = process({ pixel });
-        insert({ row: r, column: c, pixel });
       }
     }
   } else {
@@ -377,96 +407,100 @@ const geowarp = function geowarp({
     for (let r = 0; r < out_height; r++) {
       top = bottom;
       bottom = top - out_pixel_height;
-      right = out_xmin;
-      for (let c = 0; c < out_width; c++) {
-        left = right;
-        right = left + out_pixel_width;
-        // top, left, bottom, right is the sample area in the coordinate system of the output
+      const segments = segments_by_row[r];
+      for (let iseg = 0; iseg < segments.length; iseg++) {
+        const [cstart, cend] = segments[iseg];
+        right = out_xmin + out_pixel_width * cstart;
+        for (let c = cstart; c < cend; c++) {
+          left = right;
+          right = left + out_pixel_width;
+          // top, left, bottom, right is the sample area in the coordinate system of the output
 
-        // convert to bbox of input coordinate system
-        const bbox_in_srs = same_srs ? [left, bottom, right, top] : [...inverse([left, bottom]), ...inverse([right, top])];
-        if (debug_level >= 3) console.log("[geowarp] bbox_in_srs:", bbox_in_srs);
-        const [xmin_in_srs, ymin_in_srs, xmax_in_srs, ymax_in_srs] = bbox_in_srs;
+          // convert to bbox of input coordinate system
+          const bbox_in_srs = same_srs ? [left, bottom, right, top] : [...inverse([left, bottom]), ...inverse([right, top])];
+          if (debug_level >= 3) console.log("[geowarp] bbox_in_srs:", bbox_in_srs);
+          const [xmin_in_srs, ymin_in_srs, xmax_in_srs, ymax_in_srs] = bbox_in_srs;
 
-        // convert bbox in input srs to raster pixels
-        const leftInRasterPixels = (xmin_in_srs - in_xmin) / in_pixel_width;
-        if (debug_level >= 4) console.log("[geowarp] leftInRasterPixels:", leftInRasterPixels);
-        const rightInRasterPixels = (xmax_in_srs - in_xmin) / in_pixel_width;
-        if (debug_level >= 4) console.log("[geowarp] rightInRasterPixels:", rightInRasterPixels);
-        const topInRasterPixels = (in_ymax - ymax_in_srs) / in_pixel_height;
-        if (debug_level >= 4) console.log("[geowarp] topInRasterPixels:", topInRasterPixels);
-        const bottomInRasterPixels = (in_ymax - ymin_in_srs) / in_pixel_height;
-        if (debug_level >= 4) console.log("[geowarp] bottomInRasterPixels:", bottomInRasterPixels);
+          // convert bbox in input srs to raster pixels
+          const leftInRasterPixels = (xmin_in_srs - in_xmin) / in_pixel_width;
+          if (debug_level >= 4) console.log("[geowarp] leftInRasterPixels:", leftInRasterPixels);
+          const rightInRasterPixels = (xmax_in_srs - in_xmin) / in_pixel_width;
+          if (debug_level >= 4) console.log("[geowarp] rightInRasterPixels:", rightInRasterPixels);
+          const topInRasterPixels = (in_ymax - ymax_in_srs) / in_pixel_height;
+          if (debug_level >= 4) console.log("[geowarp] topInRasterPixels:", topInRasterPixels);
+          const bottomInRasterPixels = (in_ymax - ymin_in_srs) / in_pixel_height;
+          if (debug_level >= 4) console.log("[geowarp] bottomInRasterPixels:", bottomInRasterPixels);
 
-        // round and make sure leftSample isn't less than zero
-        let leftSample = Math.round(leftInRasterPixels);
-        let rightSample = Math.round(rightInRasterPixels);
-        let topSample = Math.round(topInRasterPixels);
-        let bottomSample = Math.round(bottomInRasterPixels);
+          // round and make sure leftSample isn't less than zero
+          let leftSample = Math.round(leftInRasterPixels);
+          let rightSample = Math.round(rightInRasterPixels);
+          let topSample = Math.round(topInRasterPixels);
+          let bottomSample = Math.round(bottomInRasterPixels);
 
-        let pixel = [];
-        if (leftSample >= in_width || rightSample < 0 || topSample < 0 || bottomSample >= in_height) {
-          pixel = new Array(read_bands.length).fill(in_no_data);
-        } else {
-          // clamp edges to prevent clipping outside bounds
-          leftSample = Math.max(0, leftSample);
-          rightSample = Math.min(rightSample, in_width);
-          topSample = Math.max(0, topSample);
-          bottomSample = Math.min(bottomSample, in_height);
+          let pixel = [];
+          if (leftSample >= in_width || rightSample < 0 || topSample < 0 || bottomSample >= in_height) {
+            pixel = new Array(read_bands.length).fill(in_no_data);
+          } else {
+            // clamp edges to prevent clipping outside bounds
+            leftSample = Math.max(0, leftSample);
+            rightSample = Math.min(rightSample, in_width);
+            topSample = Math.max(0, topSample);
+            bottomSample = Math.min(bottomSample, in_height);
 
-          for (let i = 0; i < read_bands.length; i++) {
-            const read_band = read_bands[i];
-            const { data: values } = xdim.clip({
-              data: in_data,
-              flat: true,
-              layout: in_layout,
-              sizes: in_sizes,
-              rect: {
-                band: [read_band, read_band],
-                row: [topSample, Math.max(topSample, bottomSample - 1)],
-                column: [leftSample, Math.max(leftSample, rightSample - 1)]
-              }
-            });
-
-            let pixelBandValue = null;
-            if (typeof method === "function") {
-              pixelBandValue = method({ values });
-            } else if (method === "max") {
-              pixelBandValue = max({ nums: values, in_no_data, out_no_data, theoretical_max: undefined });
-            } else if (method === "mean") {
-              pixelBandValue = mean(values, in_no_data, out_no_data);
-            } else if (method === "median") {
-              pixelBandValue = median({ nums: values, in_no_data, out_no_data });
-            } else if (method === "min") {
-              pixelBandValue = min({ nums: values, in_no_data, out_no_data, theoretical_min: undefined });
-            } else if (method.startsWith("mode")) {
-              const modes = mode(values);
-              const len = modes.length;
-              if (len === 1) {
-                pixelBandValue = modes[0];
-              } else {
-                if (method === "mode") {
-                  pixelBandValue = modes[0];
-                } else if (method === "mode-max") {
-                  pixelBandValue = max({ nums: values });
-                } else if (method === "mode-mean") {
-                  pixelBandValue = mean(values);
-                } else if (method === "mode-median") {
-                  pixelBandValue = median({ nums: values });
-                } else if (method === "mode-min") {
-                  pixelBandValue = min({ nums: values });
+            for (let i = 0; i < read_bands.length; i++) {
+              const read_band = read_bands[i];
+              const { data: values } = xdim.clip({
+                data: in_data,
+                flat: true,
+                layout: in_layout,
+                sizes: in_sizes,
+                rect: {
+                  band: [read_band, read_band],
+                  row: [topSample, Math.max(topSample, bottomSample - 1)],
+                  column: [leftSample, Math.max(leftSample, rightSample - 1)]
                 }
-              }
-            } else {
-              throw new Error(`[geowarp] unknown method "${method}"`);
-            }
-            if (round) pixelBandValue = Math.round(pixelBandValue);
-            pixel.push(pixelBandValue);
-          }
-        }
+              });
 
-        if (process) pixel = process({ pixel });
-        insert({ row: r, column: c, pixel });
+              let pixelBandValue = null;
+              if (typeof method === "function") {
+                pixelBandValue = method({ values });
+              } else if (method === "max") {
+                pixelBandValue = max({ nums: values, in_no_data, out_no_data, theoretical_max: undefined });
+              } else if (method === "mean") {
+                pixelBandValue = mean(values, in_no_data, out_no_data);
+              } else if (method === "median") {
+                pixelBandValue = median({ nums: values, in_no_data, out_no_data });
+              } else if (method === "min") {
+                pixelBandValue = min({ nums: values, in_no_data, out_no_data, theoretical_min: undefined });
+              } else if (method.startsWith("mode")) {
+                const modes = mode(values);
+                const len = modes.length;
+                if (len === 1) {
+                  pixelBandValue = modes[0];
+                } else {
+                  if (method === "mode") {
+                    pixelBandValue = modes[0];
+                  } else if (method === "mode-max") {
+                    pixelBandValue = max({ nums: values });
+                  } else if (method === "mode-mean") {
+                    pixelBandValue = mean(values);
+                  } else if (method === "mode-median") {
+                    pixelBandValue = median({ nums: values });
+                  } else if (method === "mode-min") {
+                    pixelBandValue = min({ nums: values });
+                  }
+                }
+              } else {
+                throw new Error(`[geowarp] unknown method "${method}"`);
+              }
+              if (round) pixelBandValue = Math.round(pixelBandValue);
+              pixel.push(pixelBandValue);
+            }
+          }
+
+          if (process) pixel = process({ pixel });
+          insert({ row: r, column: c, pixel });
+        }
       }
     }
   }
