@@ -105,6 +105,7 @@ const geowarp = function geowarp({
   out_no_data = null,
   method = "median",
   read_bands = undefined, // which bands to read, used in conjunction with expr
+  row_start = 0, // which row in output data to start writing at
   expr = undefined, // band expression function
   round = false, // whether to round output
   theoretical_min, // minimum theoretical value (e.g., 0 for unsigned integer arrays)
@@ -288,7 +289,7 @@ const geowarp = function geowarp({
 
   if (method === "near") {
     const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
-    for (let r = 0; r < out_height; r++) {
+    for (let r = row_start; r < out_height; r++) {
       const y = out_ymax - out_pixel_height * r;
       const segments = segments_by_row[r];
       for (let iseg = 0; iseg < segments.length; iseg++) {
@@ -324,7 +325,7 @@ const geowarp = function geowarp({
     }
   } else if (method === "bilinear") {
     const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
-    for (let r = 0; r < out_height; r++) {
+    for (let r = row_start; r < out_height; r++) {
       const y = out_ymax - out_pixel_height * r;
       const segments = segments_by_row[r];
       for (let iseg = 0; iseg < segments.length; iseg++) {
@@ -404,7 +405,7 @@ const geowarp = function geowarp({
   } else {
     let top, left, bottom, right;
     bottom = out_ymax;
-    for (let r = 0; r < out_height; r++) {
+    for (let r = row_start; r < out_height; r++) {
       top = bottom;
       bottom = top - out_pixel_height;
       const segments = segments_by_row[r];
@@ -438,7 +439,7 @@ const geowarp = function geowarp({
           let bottomSample = Math.round(bottomInRasterPixels);
 
           let pixel = [];
-          if (leftSample >= in_width || rightSample < 0 || topSample < 0 || bottomSample >= in_height) {
+          if (leftSample >= in_width || rightSample < 0 || bottomSample < 0 || topSample >= in_height) {
             pixel = new Array(read_bands.length).fill(in_no_data);
           } else {
             // clamp edges to prevent clipping outside bounds

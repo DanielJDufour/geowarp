@@ -39,9 +39,9 @@
   "devDependencies": {
     "@mapbox/tilebelt": "^1.0.2",
     "fast-counter": "*",
-    "find-and-read": "^1.1.0",
-    "flug": "^2.2.0",
-    "geotiff": "^1.0.4",
+    "find-and-read": "^1.2.0",
+    "flug": "^2.3.1",
+    "geotiff": "^1.0.9",
     "geotiff-read-bbox": "*",
     "pngjs": "^6.0.0",
     "proj4-fully-loaded": "^0.0.2",
@@ -54,8 +54,8 @@
     "faster-median": "^0.1.0",
     "get-depth": "^0.0.3",
     "reproject-bbox": "^0.3.0",
-    "reproject-geojson": "^0.1.0",
+    "reproject-geojson": "^0.1.2",
     "typed-array-ranges": "^0.0.0",
-    "xdim": "^1.5.2"
+    "xdim": "^1.8.0"
   }
 }
