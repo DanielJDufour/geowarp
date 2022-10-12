@@ -517,6 +517,9 @@ const geowarp = function geowarp({
   };
 };
 
-if (typeof module === "object") module.exports = geowarp;
+if (typeof module === "object") {
+  module.exports = geowarp;
+  module.exports.default = geowarp;
+}
 if (typeof window === "object") window.geowarp = geowarp;
 if (typeof self === "object") self.geowarp = geowarp;
