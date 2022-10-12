@@ -112,3 +112,4 @@ test-data/
 # backup files
 *bak*
 
+package-lock.json
