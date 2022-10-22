@@ -3,14 +3,18 @@
   "version": "1.4.0",
   "description": "Super Low-Level Raster Reprojection and Resampling Library",
   "main": "geowarp.js",
+  "types": "geowarp.d.ts",
   "files": [
-    "geowarp.js"
+    "geowarp.js",
+    "geowarp.d.ts"
   ],
   "scripts": {
     "clean": "rm -fr ./test-data/*.png",
     "format": "npx prettier --arrow-parens=avoid --print-width=160 --trailing-comma=none --write *.js",
     "setup": "cd test-data && ./setup.sh",
-    "test": "npm run clean && node test.js"
+    "test": "npm run clean && npm run test:js && npm test:ts",
+    "test:js": "node test.js",
+    "test:ts": "npx ts-node ./test.ts"
   },
   "repository": {
     "type": "git",
@@ -38,23 +42,23 @@
   "homepage": "https://github.com/DanielJDufour/geowarp#readme",
   "devDependencies": {
     "@mapbox/tilebelt": "^1.0.2",
-    "fast-counter": "*",
+    "fast-counter": "^0.1.0",
     "find-and-read": "^1.2.0",
     "flug": "^2.3.1",
     "geotiff": "^1.0.9",
     "geotiff-read-bbox": "*",
     "pngjs": "^6.0.0",
-    "proj4-fully-loaded": "^0.0.2",
+    "proj4-fully-loaded": "^0.1.0",
     "write-image": "^0.0.5"
   },
   "dependencies": {
-    "dufour-peyton-intersection": "^0.0.1",
-    "fast-max": "^0.3.0",
-    "fast-min": "^0.2.0",
-    "faster-median": "^0.1.0",
+    "dufour-peyton-intersection": "^0.1.2",
+    "fast-max": "^0.4.0",
+    "fast-min": "^0.3.0",
+    "faster-median": "^1.0.0",
     "get-depth": "^0.0.3",
-    "reproject-bbox": "^0.3.0",
-    "reproject-geojson": "^0.1.2",
+    "reproject-bbox": "^0.4.2",
+    "reproject-geojson": "^0.2.0",
     "typed-array-ranges": "^0.0.0",
     "xdim": "^1.8.0"
   }
