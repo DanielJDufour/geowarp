@@ -1,12 +1,13 @@
 type bbox = Readonly<[number, number, number, number]> | Readonly<[string, string, string, string]> | number[] | string[];
 type srs = number | string;
 type reproject = (pt: [number, number]) => [number, number];
+type data = number[] | number[][] | number[][][] | any;
 
 export default function geowarp(options: {
   debug_level?: number,
   forward?: reproject,
   inverse?: reproject,
-  in_data: number[] | number[][] | number[][][] | any,
+  in_data: data,
   in_bbox: bbox,
   in_layout?: string,
   in_srs?: srs | undefined,
@@ -14,6 +15,7 @@ export default function geowarp(options: {
   in_height: number,
   out_bands?: number[] | Readonly<number[]> | undefined,
   out_bbox?: bbox | undefined,
+  out_data?: data,
   out_layout?: string | undefined,
   out_srs?: srs | undefined,
   out_pixel_depth?: number | undefined,

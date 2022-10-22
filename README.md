@@ -64,6 +64,10 @@ const result = geowarp({
   // in same format as in_bbox
   out_bbox: [-13638811.83098057, 5028944.964938315, -13619243.951739563, 5028944.964938315],
 
+  // optional
+  // single or multi-dimensional array that will hold the output
+  out_data: [[[[],[],[],...],[[],[],[],...],[[],[],[],...],[[],[],[],...],...]],
+
   // layout of the result using xdim layout syntax
   // see: https://github.com/danieljdufour/xdim
   out_layout: "[row][column][band]",
