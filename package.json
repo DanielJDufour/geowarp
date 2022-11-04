@@ -12,7 +12,7 @@
     "clean": "rm -fr ./test-data/*.png",
     "format": "npx prettier --arrow-parens=avoid --print-width=160 --trailing-comma=none --write *.js",
     "setup": "cd test-data && ./setup.sh",
-    "test": "npm run clean && npm run test:js && npm test:ts",
+    "test": "npm run clean && npm run test:js && npm run test:ts",
     "test:js": "node test.js",
     "test:ts": "npx ts-node ./test.ts"
   },
@@ -60,6 +60,6 @@
     "reproject-bbox": "^0.4.2",
     "reproject-geojson": "^0.2.0",
     "typed-array-ranges": "^0.0.0",
-    "xdim": "^1.8.0"
+    "xdim": "^1.9.0"
   }
 }

@@ -93,6 +93,7 @@ const geowarp = function geowarp({
   in_pixel_width, // optional, automatically calculated from in_bbox
   in_width,
   in_no_data,
+  out_array_types, // array of constructor names passed to internal call to xdim's prepareData function
   out_bands, // array of bands to keep and order, default is keeping all the bands in same order
   out_data, // single or multi-dimensional array that geowarp will fill in with the output
   out_pixel_depth, // number of output bands
@@ -273,7 +274,8 @@ const geowarp = function geowarp({
   out_data ??= xdim.prepareData({
     fill: out_no_data,
     layout: out_layout,
-    sizes: out_sizes
+    sizes: out_sizes,
+    arrayTypes: out_array_types
   }).data;
 
   const update = xdim.prepareUpdate({ data: out_data, layout: out_layout, sizes: out_sizes });

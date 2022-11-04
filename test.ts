@@ -54,6 +54,7 @@ const writePNGSync = ({ h, w, data, filepath }: { h: number, w: number, data: an
       in_srs,
       in_height: height,
       in_width: width,
+      out_array_types: ["Array", "Array", "Uint8ClampedArray"],
       out_height: height,
       out_width: width,
       out_layout: "[band][row][column]",
@@ -70,6 +71,7 @@ const writePNGSync = ({ h, w, data, filepath }: { h: number, w: number, data: an
       writePNGSync({ h: height, w: width, data, filepath: `./test-data/gadas-cutline-` + method });
     }
     eq(data.length, 4); // check band count
+    eq((data as any)[0][0].constructor.name, "Uint8ClampedArray");
   });
 });
 

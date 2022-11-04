@@ -52,6 +52,10 @@ const result = geowarp({
   // how many pixels tall the input data is
   in_height: 1015,
 
+  // optional array of constructor names for each array level
+  // default is to use Array (untyped) for everything
+  out_array_types: ["Array", "Array", "Uint8Array"],
+
   // optional array for sampling and/or changing band order
   // array is the order of the bands in the output with numbers
   // indicating the band index in the input (starting at zero)
