@@ -27,7 +27,7 @@ const exit = (process as any).exit;
 
 const writePNGSync = ({ h, w, data, filepath }: { h: number, w: number, data: any, filepath: string }) => {
   const { data: buf } = writeImage({ data, height: h, format: "PNG", width: w })!;
-  writeFileSync(`${filepath}.png`, buf);
+  writeFileSync(`${filepath}.png`, Buffer.from(buf));
 };
 
 ["near", "median", "bilinear"].forEach(method => {
