@@ -28,6 +28,7 @@ export default function geowarp(options: {
   out_width: number,
   method?: string | ((arg: { values: number[] }) => number) | undefined,
   round?: boolean | undefined,
+  row_start?: number | undefined,
   theoretical_min?: number | undefined,
   theoretical_max?: number | undefined,
   expr?: ((arg: { pixel: number[] }) => number[]) | undefined,
