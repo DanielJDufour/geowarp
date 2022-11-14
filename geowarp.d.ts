@@ -1,5 +1,3 @@
-import type { ArrayTypeString, ArrayTypeStrings } from "xdim";
-
 type bbox = Readonly<[number, number, number, number]> | Readonly<[string, string, string, string]> | number[] | string[];
 type srs = number | string;
 type reproject = (pt: [number, number]) => [number, number];
@@ -16,7 +14,7 @@ export default function geowarp(options: {
   in_srs?: srs | undefined,
   in_width: number,
   in_height: number,
-  out_array_types?: ArrayTypeString[] | ArrayTypeStrings | undefined,
+  out_array_types?: ReadonlyArray<"Array" | "Int8Array" | "Uint8Array" | "Uint8ClampedArray" | "Int16Array" | "Uint16Array" | "Float32Array" | "Float64Array" | "BigInt64Array" | "BigUint64Array"> | undefined,
   out_bands?: number[] | Readonly<number[]> | undefined,
   out_bbox?: bbox | undefined,
   out_data?: data,
