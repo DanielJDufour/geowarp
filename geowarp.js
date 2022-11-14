@@ -108,6 +108,7 @@ const geowarp = function geowarp({
   method = "median",
   read_bands = undefined, // which bands to read, used in conjunction with expr
   row_start = 0, // which row in output data to start writing at
+  row_end,
   expr = undefined, // band expression function
   round = false, // whether to round output
   theoretical_min, // minimum theoretical value (e.g., 0 for unsigned integer arrays)
@@ -289,9 +290,12 @@ const geowarp = function geowarp({
     });
   };
 
+  row_end ??= out_height;
+
   if (method === "near") {
     const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
-    for (let r = row_start; r < out_height; r++) {
+    const rmax = Math.min(row_end, out_height);
+    for (let r = row_start; r < rmax; r++) {
       const y = out_ymax - out_pixel_height * r;
       const segments = segments_by_row[r];
       for (let iseg = 0; iseg < segments.length; iseg++) {
@@ -327,7 +331,8 @@ const geowarp = function geowarp({
     }
   } else if (method === "bilinear") {
     const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
-    for (let r = row_start; r < out_height; r++) {
+    const rmax = Math.min(row_end, out_height);
+    for (let r = row_start; r < rmax; r++) {
       const y = out_ymax - out_pixel_height * r;
       const segments = segments_by_row[r];
       for (let iseg = 0; iseg < segments.length; iseg++) {
@@ -407,7 +412,8 @@ const geowarp = function geowarp({
   } else {
     let top, left, bottom, right;
     bottom = out_ymax;
-    for (let r = row_start; r < out_height; r++) {
+    const rmax = Math.min(row_end, out_height);
+    for (let r = row_start; r < rmax; r++) {
       top = bottom;
       bottom = top - out_pixel_height;
       const segments = segments_by_row[r];
