@@ -17,6 +17,8 @@ import reprojectBoundingBox from "reproject-bbox";
 // @ts-ignore
 import tilebelt from "@mapbox/tilebelt";
 // @ts-ignore
+import { transform } from "xdim";
+// @ts-ignore
 import writeImage from "write-image";
 
 import geowarp from "./geowarp";
@@ -301,6 +303,8 @@ const runTileTests = async ({
 
 [
   {
+    // note: the left edge of the tile is actually west of the left edge of the geotiff,
+    // thus the resulting image should appear to have a black stripe on the left edge
     x: 40,
     y: 96,
     z: 8,
@@ -420,5 +424,36 @@ const runTileTests = async ({
       true
     );
     eq(result.read_bands, [0, 1]);
+  });
+});
+
+test("georaster-layer-for-leaflet v3 issues", async ({ eq }) => {
+  const filename = "example_4326.tif";
+  const filepath = resolve(__dirname, "./test-data", filename);
+  const geotiff = await fromFile(filepath);
+  const image = await geotiff.getImage(0);
+  const rasters = await image.readRasters();
+  const { inverse, forward } = proj4("EPSG:4326", "EPSG:3857");
+  const in_height = image.getHeight();
+  const in_width = image.getWidth();
+  const in_data =  transform({ data: rasters, from: "[band][row,column]", to: "[band][row][column]", sizes: { band: rasters.length, row: in_height, column: in_width } }).data;
+  geowarp({
+    debug_level: 0,
+    forward,
+    inverse,
+    in_data,
+    in_bbox: image.getBoundingBox(),
+    in_layout: "[band][row][column]",
+    in_srs: 4326,
+    in_width,
+    in_height,
+    out_array_types: ["Array", "Array", "Array"],
+    out_bbox: [149.99999998948465, 49.99999988790859, 309.99999995583534, 159.99999987996836],
+    out_layout: "[band][row][column]",
+    out_srs: 3857,
+    out_height: 256,
+    out_width: 256,
+    method: "near",
+    round: false
   });
 });

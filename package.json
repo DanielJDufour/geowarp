@@ -46,7 +46,7 @@
     "fast-counter": "^0.1.0",
     "find-and-read": "^1.2.0",
     "flug": "^2.3.1",
-    "geotiff": "^1.0.9",
+    "geotiff": "^2.0.7",
     "geotiff-read-bbox": "*",
     "pngjs": "^6.0.0",
     "proj4-fully-loaded": "^0.2.0",
