@@ -113,3 +113,4 @@ test-data/
 *bak*
 
 package-lock.json
+*.geojson
