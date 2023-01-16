@@ -194,6 +194,7 @@ const runTileTests = async ({
   z,
   filename,
   methods,
+  debug_level,
   out_bands_array,
   out_layouts = ["[row][column][band]", "[band][row][column]", "[band][row,column]"],
   out_no_data,
@@ -205,6 +206,7 @@ const runTileTests = async ({
   z: number,
   filename: string,
   methods: string[],
+  debug_level?: number;
   out_bands_array: Array<undefined | number[]>,
   out_no_data?: number;
   out_layouts?: string[],
@@ -230,7 +232,7 @@ const runTileTests = async ({
 
               const start = (global as any).performance.now();
               const result = geowarp({
-                debug_level: 0,
+                debug_level,
                 forward,
                 inverse,
 
@@ -314,8 +316,9 @@ const runTileTests = async ({
     y: 3071,
     z: 13,
     sizes: [64, 256, 512],
+    debug_level: 0,
     filename: "wildfires.tiff",
-    methods: ["vectorize", "first", "bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
+    methods: ["near-vectorize", "vectorize", "first", "bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
     out_bands_array: [undefined],
     out_no_data: 0,
     most_common_pixels: ["0,0,0", "11,16,8", "16,24,11", "18,26,11", "18,26,12", "13,18,9", "22,30,17", "48,59,61", "218,33,33"]
@@ -328,7 +331,7 @@ const runTileTests = async ({
     z: 8,
     sizes: [64, 256, 512],
     filename: "wildfires.tiff",
-    methods: ["first", "bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
+    methods: ["near-vectorize", "first", "bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
     out_bands_array: [undefined, [0], [2, 1, 0]],
     most_common_pixels: ["0,0,0", "11,16,8", "16,24,11", "18,26,11", "18,26,12", "13,18,9", "22,30,17"]
   },
@@ -338,7 +341,7 @@ const runTileTests = async ({
     z: 14,
     sizes: [64, 256, 512],
     filename: "SkySat_Freeport_s03_20170831T162740Z3.tif",
-    methods: ["first", "bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
+    methods: ["near-vectorize", "first", "bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
     out_bands_array: [undefined, [0], [2, 1, 0]],
     most_common_pixels: [
       "105,88,75",

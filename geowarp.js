@@ -205,7 +205,6 @@ const geowarp = function geowarp({
     out_bbox = [0, 0, out_width, out_height];
   }
 
-  if (debug_level >= 1) console.log("[geowarp] method:", method);
   const [in_xmin, in_ymin, in_xmax, in_ymax] = in_bbox;
 
   in_pixel_height ??= (in_ymax - in_ymin) / in_height;
@@ -308,11 +307,37 @@ const geowarp = function geowarp({
 
   row_end ??= out_height;
 
+  if (debug_level >= 1) console.log("[geowarp] method:", method);
+
+  let out_bbox_in_srs, out_pixel_height_in_srs, out_pixel_width_in_srs, pixel_height_ratio, pixel_width_ratio;
+  if (method === "near-vectorize") {
+    if (debug_level >= 2) console.log('[geowarp] choosing between "near" and "vectorize" for best speed');
+
+    out_bbox_in_srs = reprojectBoundingBox({ bbox: out_bbox, reproject: inverse });
+
+    out_pixel_height_in_srs = (out_bbox_in_srs[3] - out_bbox_in_srs[1]) / out_height;
+    out_pixel_width_in_srs = (out_bbox_in_srs[2] - out_bbox_in_srs[0]) / out_width;
+
+    pixel_height_ratio = out_pixel_height_in_srs / in_pixel_height;
+    pixel_width_ratio = out_pixel_width_in_srs / in_pixel_width;
+
+    if (debug_level >= 2) console.log("[geowarp] pixel_height_ratio:", pixel_height_ratio);
+    if (debug_level >= 2) console.log("[geowarp] pixel_width_ratio:", pixel_width_ratio);
+    if (pixel_height_ratio < 0.1 && pixel_width_ratio < 0.1) {
+      method = "vectorize";
+      if (debug_level >= 1) console.log('[geowarp] selected "vectorize" method as it is likely to be faster');
+    } else {
+      method = "near";
+      if (debug_level >= 1) console.log('geowarp] selected "near" method as it is likely to be faster');
+    }
+  }
+
   if (method === "vectorize") {
     const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
 
     // reproject bounding box of output (e.g. a tile) into the spatial reference system of the input data
-    const [left, bottom, right, top] = reprojectBoundingBox({ bbox: out_bbox, reproject: inverse });
+    out_bbox_in_srs ??= reprojectBoundingBox({ bbox: out_bbox, reproject: inverse });
+    const [left, bottom, right, top] = out_bbox_in_srs;
 
     const in_row_start = Math.floor((in_ymax - top) / in_pixel_height);
     const in_row_start_clamped = clamp(in_row_start, 0, in_height - 1);
@@ -324,14 +349,18 @@ const geowarp = function geowarp({
     const in_column_end = Math.min(Math.floor((right - in_xmin) / in_pixel_width), in_width - 1);
     const in_column_end_clamped = clamp(in_column_end, 0, in_width - 1);
 
-    const out_pixel_height_in_input_srs = (top - bottom) / out_height;
-    if (in_pixel_height < out_pixel_height_in_input_srs) {
-      console.warn(`normalized output pixel height of ${out_pixel_height_in_input_srs} is larger than input pixel height of ${in_pixel_height}`);
+    out_pixel_height_in_srs ??= (top - bottom) / out_height;
+    if (in_pixel_height < out_pixel_height_in_srs) {
+      if (debug_level >= 1) {
+        console.warn(`normalized output pixel height of ${out_pixel_height_in_srs} is larger than input pixel height of ${in_pixel_height}`);
+      }
     }
 
-    const out_pixel_width_in_input_srs = (right - left) / out_width;
-    if (in_pixel_width < out_pixel_width_in_input_srs) {
-      console.warn(`normalized output pixel width of ${out_pixel_width_in_input_srs} is larger than input pixel width of ${in_pixel_width}`);
+    out_pixel_width_in_srs ??= (right - left) / out_width;
+    if (in_pixel_width < out_pixel_width_in_srs) {
+      if (debug_level >= 1) {
+        console.warn(`normalized output pixel width of ${out_pixel_width_in_srs} is larger than input pixel width of ${in_pixel_width}`);
+      }
     }
 
     let pixel_ymin = in_ymax - in_row_start_clamped * in_pixel_height;
@@ -379,7 +408,7 @@ const geowarp = function geowarp({
       for (let iseg = 0; iseg < segments.length; iseg++) {
         const [cstart, cend] = segments[iseg];
         for (let c = cstart; c < cend; c++) {
-          const x = out_xmin + out_pixel_width * c;
+          const x = out_xmin + c * out_pixel_width + half_out_pixel_width;
           const pt_out_srs = [x, y];
           const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inverse(pt_out_srs);
           const xInRasterPixels = Math.floor((x_in_srs - in_xmin) / in_pixel_width);
@@ -607,7 +636,7 @@ const geowarp = function geowarp({
     }
   }
 
-  if (debug_level >= 1) console.log("[geowarp] took" + (performance.now() - start_time) + "ms");
+  if (debug_level >= 1) console.log("[geowarp] took " + (performance.now() - start_time).toFixed(0) + "ms");
   return {
     data: out_data,
     out_bands,
