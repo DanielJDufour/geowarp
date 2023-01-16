@@ -9,6 +9,8 @@ const reprojectBoundingBox = require("reproject-bbox/pluggable");
 const reprojectGeoJSON = require("reproject-geojson/pluggable");
 const xdim = require("xdim");
 
+const clamp = (n, min, max) => (n < min ? min : n > max ? max : n);
+
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 const uniq = arr => Array.from(new Set(arr)).sort((a, b) => b - a);
@@ -81,6 +83,17 @@ const mode = (nums, no_data) => {
   }
 };
 
+// convert bbox in [xmin, ymin, xmax, ymax] format to a GeoJSON-like Polygon
+const polygon = ([x0, y0, x1, y1]) => [
+  [
+    [x0, y1],
+    [x0, y0],
+    [x1, y0],
+    [x1, y1],
+    [x0, y1]
+  ]
+];
+
 const geowarp = function geowarp({
   debug_level = 0,
   in_data,
@@ -120,6 +133,7 @@ const geowarp = function geowarp({
   cutline_forward // function to reproject [x, y] point from cutline_srs to out_srs
 }) {
   if (debug_level >= 1) console.log("[geowarp] starting");
+  const start_time = debug_level >= 1 ? performance.now() : 0;
 
   const same_srs = in_srs === out_srs;
   if (debug_level >= 1) console.log("[geowarp] input and output srs are the same:", same_srs);
@@ -209,6 +223,8 @@ const geowarp = function geowarp({
   out_pixel_width ??= (out_xmax - out_xmin) / out_width;
   if (debug_level >= 1) console.log("[geowarp] out_pixel_height:", out_pixel_height);
   if (debug_level >= 1) console.log("[geowarp] out_pixel_width:", out_pixel_width);
+  const half_out_pixel_height = out_pixel_height / 2;
+  const half_out_pixel_width = out_pixel_width / 2;
 
   if (theoretical_min === undefined || theoretical_max === undefined) {
     try {
@@ -292,11 +308,73 @@ const geowarp = function geowarp({
 
   row_end ??= out_height;
 
-  if (method === "near") {
+  if (method === "vectorize") {
+    const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
+
+    // reproject bounding box of output (e.g. a tile) into the spatial reference system of the input data
+    const [left, bottom, right, top] = reprojectBoundingBox({ bbox: out_bbox, reproject: inverse });
+
+    const in_row_start = Math.floor((in_ymax - top) / in_pixel_height);
+    const in_row_start_clamped = clamp(in_row_start, 0, in_height - 1);
+    const in_row_end = Math.min(Math.floor((in_ymax - bottom) / in_pixel_height), in_height - 1);
+    const in_row_end_clamped = clamp(in_row_end, 0, in_height - 1);
+
+    const in_column_start = Math.floor((left - in_xmin) / in_pixel_width);
+    const in_column_start_clamped = clamp(in_column_start, 0, in_width - 1);
+    const in_column_end = Math.min(Math.floor((right - in_xmin) / in_pixel_width), in_width - 1);
+    const in_column_end_clamped = clamp(in_column_end, 0, in_width - 1);
+
+    const out_pixel_height_in_input_srs = (top - bottom) / out_height;
+    if (in_pixel_height < out_pixel_height_in_input_srs) {
+      console.warn(`normalized output pixel height of ${out_pixel_height_in_input_srs} is larger than input pixel height of ${in_pixel_height}`);
+    }
+
+    const out_pixel_width_in_input_srs = (right - left) / out_width;
+    if (in_pixel_width < out_pixel_width_in_input_srs) {
+      console.warn(`normalized output pixel width of ${out_pixel_width_in_input_srs} is larger than input pixel width of ${in_pixel_width}`);
+    }
+
+    let pixel_ymin = in_ymax - in_row_start_clamped * in_pixel_height;
+    for (let r = in_row_start_clamped; r <= in_row_end_clamped; r++) {
+      const pixel_ymax = pixel_ymin;
+      pixel_ymin = pixel_ymax - in_pixel_height;
+      for (let c = in_column_start_clamped; c <= in_column_end_clamped; c++) {
+        let values = read_bands.map(band => select({ point: { band, row: r, column: c } }).value);
+
+        // apply band math expression if applicable
+        if (process) values = process({ pixel: values });
+
+        const pixel_xmin = in_xmin + c * in_pixel_width;
+        const pixel_xmax = pixel_xmin + in_pixel_width;
+
+        const pixel_bbox = [pixel_xmin, pixel_ymin, pixel_xmax, pixel_ymax];
+
+        // convert pixel to a rectangle polygon in srs of input data
+        const rect = polygon(pixel_bbox);
+
+        // reproject pixel rectangle from input to output srs
+        const pixel_geometry_in_out_srs = reprojectGeoJSON(rect, { reproject: forward });
+
+        dufour_peyton_intersection.calculate({
+          debug: false,
+          raster_bbox: out_bbox,
+          raster_height: out_height,
+          raster_width: out_width,
+          pixel_height: out_pixel_height,
+          pixel_width: out_pixel_width,
+          geometry: pixel_geometry_in_out_srs,
+          per_pixel: ({ row, column }) => {
+            insert({ pixel: values, row, column });
+          }
+        });
+      }
+    }
+  } else if (method === "near") {
     const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
     const rmax = Math.min(row_end, out_height);
+    let y = out_ymax + half_out_pixel_height - row_start * out_pixel_height;
     for (let r = row_start; r < rmax; r++) {
-      const y = out_ymax - out_pixel_height * r;
+      y -= out_pixel_height;
       const segments = segments_by_row[r];
       for (let iseg = 0; iseg < segments.length; iseg++) {
         const [cstart, cend] = segments[iseg];
@@ -330,10 +408,13 @@ const geowarp = function geowarp({
       }
     }
   } else if (method === "bilinear") {
+    // see https://en.wikipedia.org/wiki/Bilinear_interpolation
     const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
     const rmax = Math.min(row_end, out_height);
+
+    let y = out_ymax + half_out_pixel_height - row_start * out_pixel_height;
     for (let r = row_start; r < rmax; r++) {
-      const y = out_ymax - out_pixel_height * r;
+      y -= out_pixel_height;
       const segments = segments_by_row[r];
       for (let iseg = 0; iseg < segments.length; iseg++) {
         const [cstart, cend] = segments[iseg];
@@ -411,7 +492,7 @@ const geowarp = function geowarp({
     }
   } else {
     let top, left, bottom, right;
-    bottom = out_ymax;
+    bottom = out_ymax - row_start * row_start;
     const rmax = Math.min(row_end, out_height);
     for (let r = row_start; r < rmax; r++) {
       top = bottom;
@@ -426,7 +507,7 @@ const geowarp = function geowarp({
           // top, left, bottom, right is the sample area in the coordinate system of the output
 
           // convert to bbox of input coordinate system
-          const bbox_in_srs = same_srs ? [left, bottom, right, top] : [...inverse([left, bottom]), ...inverse([right, top])];
+          const bbox_in_srs = same_srs ? [left, bottom, right, top] : reprojectBoundingBox({ bbox: [left, bottom, right, top], reproject: inverse });
           if (debug_level >= 3) console.log("[geowarp] bbox_in_srs:", bbox_in_srs);
           const [xmin_in_srs, ymin_in_srs, xmax_in_srs, ymax_in_srs] = bbox_in_srs;
 
@@ -440,11 +521,23 @@ const geowarp = function geowarp({
           const bottomInRasterPixels = (in_ymax - ymin_in_srs) / in_pixel_height;
           if (debug_level >= 4) console.log("[geowarp] bottomInRasterPixels:", bottomInRasterPixels);
 
-          // round and make sure leftSample isn't less than zero
           let leftSample = Math.round(leftInRasterPixels);
           let rightSample = Math.round(rightInRasterPixels);
           let topSample = Math.round(topInRasterPixels);
           let bottomSample = Math.round(bottomInRasterPixels);
+
+          // if output pixel isn't large enough to sample an input pixel
+          // just pick input pixel at the center of the output pixel
+          if (leftSample === rightSample) {
+            const xCenterSample = (rightInRasterPixels + leftInRasterPixels) / 2;
+            leftSample = Math.floor(xCenterSample);
+            rightSample = leftSample + 1;
+          }
+          if (topSample === bottomSample) {
+            const yCenterSample = (topInRasterPixels + bottomInRasterPixels) / 2;
+            topSample = Math.floor(yCenterSample);
+            bottomSample = topSample + 1;
+          }
 
           let pixel = [];
           if (leftSample >= in_width || rightSample < 0 || bottomSample < 0 || topSample >= in_height) {
@@ -514,7 +607,7 @@ const geowarp = function geowarp({
     }
   }
 
-  if (debug_level >= 1) console.log("[geowarp] finishing");
+  if (debug_level >= 1) console.log("[geowarp] took" + (performance.now() - start_time) + "ms");
   return {
     data: out_data,
     out_bands,

@@ -47,7 +47,7 @@
     "find-and-read": "^1.2.0",
     "flug": "^2.3.1",
     "geotiff": "^1.0.9",
-    "geotiff-read-bbox": "*",
+    "geotiff-read-bbox": "^1.2.0",
     "pngjs": "^6.0.0",
     "proj4-fully-loaded": "^0.2.0",
     "write-image": "^0.2.0"
@@ -61,6 +61,6 @@
     "reproject-bbox": "^0.5.0",
     "reproject-geojson": "^0.3.0",
     "typed-array-ranges": "^0.0.0",
-    "xdim": "^1.10.0"
+    "xdim": "^1.10.1"
   }
 }

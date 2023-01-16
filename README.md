@@ -90,9 +90,9 @@ const result = geowarp({
   // width of the output image in pixels
   out_width: 256,
 
-  // method to use to sample the pixels
+  // method for sampling pixels
   // current supported methods are:
-  // "near", "bilinear", "max", "mean", "median", "min", "mode", "mode-max", "mode-mean", "mode-median", and "mode-min"
+  // "near", "vectorize", "bilinear", "max", "mean", "median", "min", "mode", "mode-max", "mode-mean", "mode-median", and "mode-min"
   // you can also pass in a custom function that takes in ({ values }) and returns a number
   method: 'median',
 

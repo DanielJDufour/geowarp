@@ -196,6 +196,7 @@ const runTileTests = async ({
   methods,
   out_bands_array,
   out_layouts = ["[row][column][band]", "[band][row][column]", "[band][row,column]"],
+  out_no_data,
   sizes = [64, 256, 512],
   most_common_pixels
 }: {
@@ -205,6 +206,7 @@ const runTileTests = async ({
   filename: string,
   methods: string[],
   out_bands_array: Array<undefined | number[]>,
+  out_no_data?: number;
   out_layouts?: string[],
   sizes: number[],
   most_common_pixels: string[]
@@ -215,7 +217,7 @@ const runTileTests = async ({
       methods.forEach((method: string) => {
         out_layouts.forEach((out_layout: string) => {
           out_bands_array.forEach((out_bands: number[] | undefined) => {
-            const testName = `${filename.split(".")[0]}-${method}-${size}-${out_layout}-${out_bands}`;
+            const testName = `${filename.split(".")[0]}-${z}-${x}-${y}-${method}-${size}-${out_layout}-${out_bands}`;
             test(testName, async ({ eq }) => {
               if (!readTilePromise) readTilePromise = readTile({ x, y, z, filename });
 
@@ -224,11 +226,13 @@ const runTileTests = async ({
 
               const in_srs = info.geotiff_srs;
 
-              const reproject = proj4("EPSG:" + 3857, "EPSG:" + in_srs).forward;
+              const { inverse, forward } = proj4("EPSG:" + in_srs, "EPSG:" + 3857);
 
+              const start = (global as any).performance.now();
               const result = geowarp({
                 debug_level: 0,
-                inverse: reproject,
+                forward,
+                inverse,
 
                 // regarding input data
                 in_data: info.data,
@@ -242,12 +246,14 @@ const runTileTests = async ({
                 out_bands,
                 out_bbox: info.tile_bbox,
                 out_layout,
+                out_no_data,
                 out_srs: 3857,
                 out_height: size,
                 out_width: size,
                 method: method === "first" ? ({ values }) => values[0] : method,
                 round: true
               });
+              console.log("took " + ((global as any).performance.now() - start) + "ms");
 
               eq(result.read_bands, out_bands || range(info.depth));
 
@@ -264,7 +270,7 @@ const runTileTests = async ({
                   try {
                     eq(most_common_pixels.includes(top), true);
                   } catch (error) {
-                    console.error(top);
+                    console.error("top:", top);
                     throw error;
                   }
                 }
@@ -302,6 +308,18 @@ const runTileTests = async ({
 };
 
 [
+  {
+    // tile for Bagley Mountain, ex: https://b.tile.osm.org/13/1319/3071.png
+    x: 1319,
+    y: 3071,
+    z: 13,
+    sizes: [64, 256, 512],
+    filename: "wildfires.tiff",
+    methods: ["vectorize", "first", "bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
+    out_bands_array: [undefined],
+    out_no_data: 0,
+    most_common_pixels: ["0,0,0", "11,16,8", "16,24,11", "18,26,11", "18,26,12", "13,18,9", "22,30,17", "48,59,61", "218,33,33"]
+  },
   {
     // note: the left edge of the tile is actually west of the left edge of the geotiff,
     // thus the resulting image should appear to have a black stripe on the left edge
@@ -361,14 +379,17 @@ const runTileTests = async ({
   }
 ].forEach(runTileTests);
 
-["bilinear", "near", "min", "max", "median"].forEach(method => {
+["vectorize", "bilinear", "near", "min", "max", "median"].forEach(method => {
   test(method + " performance", async ({ eq }) => {
     const info = await readTile({ x: 3853, y: 6815, z: 14, filename: "SkySat_Freeport_s03_20170831T162740Z3.tif" });
+
+    const { forward, inverse } = proj4("EPSG:" + info.geotiff_srs, "EPSG:" + 3857);
 
     console.time("geowarping");
     const result = geowarp({
       debug_level: 0,
-      inverse: proj4("EPSG:" + 3857, "EPSG:" + info.geotiff_srs).forward,
+      forward,
+      inverse,
 
       // regarding input data
       in_data: info.data,
@@ -394,12 +415,14 @@ const runTileTests = async ({
   test("expr " + method, async ({ eq }) => {
     const info = await readTile({ x: 3853, y: 6815, z: 14, filename: "SkySat_Freeport_s03_20170831T162740Z3.tif" });
 
+    const { forward, inverse } = proj4("EPSG:" + info.geotiff_srs, "EPSG:" + 3857);
     const result = geowarp({
       debug_level: 0,
       // rescale and add alpha channel
       read_bands: [0, 1], // only read the first two bands
       expr: ({ pixel }) => pixel.map(v => v / 255).concat([0, 1]),
-      inverse: proj4("EPSG:" + 3857, "EPSG:" + info.geotiff_srs).forward,
+      forward,
+      inverse,
 
       // regarding input data
       in_data: info.data,

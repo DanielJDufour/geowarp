@@ -204,11 +204,12 @@ const runTileTests = async ({
 
               const in_srs = info.geotiff_srs;
 
-              const reproject = proj4("EPSG:" + 3857, "EPSG:" + in_srs).forward;
+              const { forward, inverse } = proj4("EPSG:" + in_srs, "EPSG:" + 3857);
 
               const result = geowarp({
                 debug_level: 0,
-                reproject,
+                forward,
+                inverse,
 
                 // regarding input data
                 in_data: info.data,
@@ -336,9 +337,12 @@ const runTileTests = async ({
     const info = await readTile({ x: 3853, y: 6815, z: 14, filename: "SkySat_Freeport_s03_20170831T162740Z3.tif" });
 
     console.time("geowarping");
+
+    const { forward, inverse } = proj4("EPSG:" + info.geotiff_srs, "EPSG:" + 3857);
     const result = geowarp({
       debug_level: 0,
-      reproject: proj4("EPSG:" + 3857, "EPSG:" + info.geotiff_srs).forward,
+      forward,
+      inverse,
 
       // regarding input data
       in_data: info.data,
