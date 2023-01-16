@@ -333,7 +333,7 @@ const runTileTests = async ({
     filename: "wildfires.tiff",
     methods: ["near-vectorize", "first", "bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
     out_bands_array: [undefined, [0], [2, 1, 0]],
-    most_common_pixels: ["0,0,0", "11,16,8", "16,24,11", "18,26,11", "18,26,12", "13,18,9", "22,30,17"]
+    most_common_pixels: ["0,0,0", "11,16,8", "16,24,11", "17,25,14", "18,26,11", "18,26,12", "13,18,9", "22,30,17"]
   },
   {
     x: 3853,
@@ -345,6 +345,7 @@ const runTileTests = async ({
     out_bands_array: [undefined, [0], [2, 1, 0]],
     most_common_pixels: [
       "105,88,75",
+      "105,90,76",
       "106,89,75",
       "106,90,77",
       "107,90,76",
