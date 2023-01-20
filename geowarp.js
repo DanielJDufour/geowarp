@@ -448,27 +448,22 @@ const geowarp = function geowarp({
       for (let iseg = 0; iseg < segments.length; iseg++) {
         const [cstart, cend] = segments[iseg];
         for (let c = cstart; c < cend; c++) {
-          const x = out_xmin + out_pixel_width * c;
+          const x = out_xmin + c * out_pixel_width + half_out_pixel_width;
           const pt_out_srs = [x, y];
           const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inverse(pt_out_srs);
 
           const xInRasterPixels = (x_in_srs - in_xmin) / in_pixel_width;
           const yInRasterPixels = (in_ymax - y_in_srs) / in_pixel_height;
 
-          // we offset in order to account for the fact that the pixel at index 0
-          // is represented by a point at x=0.5 (the center of the pixel)
-          const xInRasterPixelsOffset = xInRasterPixels - 0.5;
-          const yInRasterPixelsOffset = yInRasterPixels - 0.5;
+          const left = Math.floor(xInRasterPixels);
+          const right = Math.ceil(xInRasterPixels);
+          const top = Math.floor(yInRasterPixels);
+          const bottom = Math.ceil(yInRasterPixels);
 
-          const left = Math.floor(xInRasterPixelsOffset);
-          const right = Math.ceil(xInRasterPixelsOffset);
-          const bottom = Math.floor(yInRasterPixelsOffset);
-          const top = Math.ceil(yInRasterPixelsOffset);
-
-          const leftWeight = xInRasterPixels % 1;
-          const rightWeight = 1 - leftWeight;
-          const bottomWeight = yInRasterPixels % 1;
-          const topWeight = 1 - bottomWeight;
+          const leftWeight = right - xInRasterPixels;
+          const rightWeight = xInRasterPixels - left;
+          const topWeight = bottom - yInRasterPixels;
+          const bottomWeight = yInRasterPixels - top;
 
           let pixel = new Array();
           for (let i = 0; i < read_bands.length; i++) {
@@ -494,7 +489,7 @@ const geowarp = function geowarp({
               // keep bottom value undefined
             } else if (lowerLeftValue === undefined || lowerLeftValue === in_no_data) {
               bottomValue = lowerRightValue;
-            } else if (upperRightValue === undefined || upperRightValue === in_no_data) {
+            } else if (lowerRightValue === undefined || lowerRightValue === in_no_data) {
               bottomValue = lowerLeftValue;
             } else {
               bottomValue = leftWeight * lowerLeftValue + rightWeight * lowerRightValue;
@@ -508,7 +503,7 @@ const geowarp = function geowarp({
             } else if (bottomValue === undefined) {
               value = topValue;
             } else {
-              value = bottomWeight * topValue + topWeight * bottomValue;
+              value = bottomWeight * bottomValue + topWeight * topValue;
             }
 
             if (round) value = Math.round(value);
