@@ -440,7 +440,7 @@ const geowarp = function geowarp({
     // see https://en.wikipedia.org/wiki/Bilinear_interpolation
     const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
     const rmax = Math.min(row_end, out_height);
-    
+
     let y = out_ymax + half_out_pixel_height - row_start * out_pixel_height;
     for (let r = row_start; r < rmax; r++) {
       y -= out_pixel_height;
@@ -451,10 +451,10 @@ const geowarp = function geowarp({
           const x = out_xmin + c * out_pixel_width + half_out_pixel_width;
           const pt_out_srs = [x, y];
           const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inverse(pt_out_srs);
-          
+
           const xInRasterPixels = (x_in_srs - in_xmin) / in_pixel_width;
           const yInRasterPixels = (in_ymax - y_in_srs) / in_pixel_height;
-  
+
           const left = Math.floor(xInRasterPixels);
           const right = Math.ceil(xInRasterPixels);
           const top = Math.floor(yInRasterPixels);
