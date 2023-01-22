@@ -59,8 +59,8 @@ const writePNGSync = ({ h, w, data, filepath }) => {
       method
     });
 
-    if (process.env.GEOWARP_WRITE_PNG) {
-      writePNGSync({ h: height, w: width, data, filepath: `./test-data/gadas-cutline-` + method });
+    if (process.env.WRITE) {
+      writePNGSync({ h: height, w: width, data, filepath: "./test-data/gadas-cutline-" + method });
     }
     eq(data.length, 4); // check band count
     eq(data[0][0].constructor.name, "Uint8ClampedArray");
@@ -100,8 +100,8 @@ test("reproject without clipping", async ({ eq }) => {
     inverse
   });
 
-  if (process.env.GEOWARP_WRITE_PNG) {
-    writePNGSync({ h: height, w: width, data, filepath: `./test-data/reproject-without-clipping.tif` });
+  if (process.env.WRITE) {
+    writePNGSync({ h: height, w: width, data, filepath: "./test-data/reproject-without-clipping.tif" });
   }
   eq(data.length, 3); // check band count
 });
@@ -148,7 +148,7 @@ test("bug: reprojecting to EPSG:26910", async ({ eq }) => {
     inverse
   });
 
-  if (process.env.GEOWARP_WRITE_PNG) {
+  if (process.env.WRITE) {
     const filepath = "./test-data/wildfires-26910";
     writePNGSync({ h: height, w: width, data, filepath });
     console.log("wrote:", filepath);
@@ -187,7 +187,8 @@ const runTileTests = async ({
   out_bands_array,
   out_layouts = ["[row][column][band]", "[band][row][column]", "[band][row,column]"],
   sizes = [64, 256, 512],
-  most_common_pixels
+  most_common_pixels,
+  turbos = [false, true]
 }) => {
   try {
     let readTilePromise;
@@ -195,80 +196,83 @@ const runTileTests = async ({
       methods.forEach(method => {
         out_layouts.forEach(out_layout => {
           out_bands_array.forEach(out_bands => {
-            const testName = `${filename.split(".")[0]}-${method}-${size}-${out_layout}-${out_bands}`;
-            test(testName, async ({ eq }) => {
-              if (!readTilePromise) readTilePromise = readTile({ x, y, z, filename });
+            turbos.forEach(turbo => {
+              const testName = `${filename.split(".")[0]}-${method}-${size}-${out_layout}-${out_bands}${turbo ? "-turbo" : ""}`;
+              test(testName, async ({ eq }) => {
+                if (!readTilePromise) readTilePromise = readTile({ x, y, z, filename });
 
-              const info = await readTilePromise;
-              // console.log("info got", info);
+                const info = await readTilePromise;
+                // console.log("info got", info);
 
-              const in_srs = info.geotiff_srs;
+                const in_srs = info.geotiff_srs;
 
-              const { forward, inverse } = proj4("EPSG:" + in_srs, "EPSG:" + 3857);
+                const { forward, inverse } = proj4("EPSG:" + in_srs, "EPSG:" + 3857);
 
-              const result = geowarp({
-                debug_level: 0,
-                forward,
-                inverse,
+                const result = geowarp({
+                  debug_level: 0,
+                  forward,
+                  inverse,
 
-                // regarding input data
-                in_data: info.data,
-                in_bbox: info.geotiff_bbox,
-                in_layout: info.layout,
-                in_srs: info.geotiff_srs,
-                in_width: info.width,
-                in_height: info.height,
+                  // regarding input data
+                  in_data: info.data,
+                  in_bbox: info.geotiff_bbox,
+                  in_layout: info.layout,
+                  in_srs: info.geotiff_srs,
+                  in_width: info.width,
+                  in_height: info.height,
 
-                // regarding location to paint
-                out_bands,
-                out_bbox: info.tile_bbox,
-                out_layout,
-                out_srs: 3857,
-                out_height: size,
-                out_width: size,
-                method: method === "first" ? ({ values }) => values[0] : method,
-                round: true
-              });
+                  // regarding location to paint
+                  out_bands,
+                  out_bbox: info.tile_bbox,
+                  out_layout,
+                  out_srs: 3857,
+                  out_height: size,
+                  out_width: size,
+                  method: method === "first" ? ({ values }) => values[0] : method,
+                  round: true,
+                  turbo
+                });
 
-              eq(result.read_bands, out_bands || range(info.depth));
+                eq(result.read_bands, out_bands || range(info.depth));
 
-              let counts;
-              if (out_layout === "[row][column][band]") {
-                eq(result.data.length, size);
-                eq(result.data[0].length, size);
-                eq(result.data[0][0].length, out_bands?.length ?? 3);
-                counts = count(result.data, { depth: 2 });
-                const top = Object.entries(counts).sort((a, b) => Math.sign(b - a))[0][0];
-                if (method !== "first" && !out_bands) {
-                  try {
-                    eq(most_common_pixels.includes(top), true);
-                  } catch (error) {
-                    console.error(top);
-                    throw error;
+                let counts;
+                if (out_layout === "[row][column][band]") {
+                  eq(result.data.length, size);
+                  eq(result.data[0].length, size);
+                  eq(result.data[0][0].length, out_bands?.length ?? 3);
+                  counts = count(result.data, { depth: 2 });
+                  const top = Object.entries(counts).sort((a, b) => Math.sign(b - a))[0][0];
+                  if (method !== "first" && !out_bands) {
+                    try {
+                      eq(most_common_pixels.includes(top), true);
+                    } catch (error) {
+                      console.error(top);
+                      throw error;
+                    }
                   }
+                } else if (out_layout === "[band][row][column]") {
+                  eq(result.data.length, out_bands?.length ?? 3);
+                  eq(result.data[0].length, size);
+                  eq(result.data[0][0].length, size);
+                } else if (out_layout === "[band][row,column]") {
+                  eq(result.data.length, out_bands?.length ?? 3);
+                  eq(
+                    result.data.every(b => b.length === size * size),
+                    true
+                  );
+                  counts = count(result.data, { depth: 1 });
+                } else if (out_layout === "[row,column,band]") {
+                  eq(result.data.length, 3 * size * size);
+                  eq(
+                    result.data.every(n => typeof n === "number"),
+                    true
+                  );
                 }
-              } else if (out_layout === "[band][row][column]") {
-                eq(result.data.length, out_bands?.length ?? 3);
-                eq(result.data[0].length, size);
-                eq(result.data[0][0].length, size);
-              } else if (out_layout === "[band][row,column]") {
-                eq(result.data.length, out_bands?.length ?? 3);
-                eq(
-                  result.data.every(b => b.length === size * size),
-                  true
-                );
-                counts = count(result.data, { depth: 1 });
-              } else if (out_layout === "[row,column,band]") {
-                eq(result.data.length, 3 * size * size);
-                eq(
-                  result.data.every(n => typeof n === "number"),
-                  true
-                );
-              }
 
-              if (process.env.GEOWARP_WRITE_PNG) {
-                writePNGSync({ h: size, w: size, data: result.data, filepath: `./test-data/${testName}` });
-              }
+                if (process.env.WRITE) {
+                  writePNGSync({ h: size, w: size, data: result.data, filepath: `./test-data/${testName}` });
+                }
+              });
             });
           });
         });
@@ -289,7 +293,7 @@ const runTileTests = async ({
     filename: "wildfires.tiff",
     methods: ["first", "bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
     out_bands_array: [undefined, [0], [2, 1, 0]],
-    most_common_pixels: ["0,0,0", "11,16,8", "18,26,11", "18,26,12", "13,18,9", "22,30,17"]
+    most_common_pixels: ["0,0,0", "11,16,8", "18,26,11", "18,26,12", "20,28,13", "13,18,9", "22,30,17"]
   },
   {
     x: 3853,
@@ -336,10 +340,8 @@ const runTileTests = async ({
   test(method + " performance", async ({ eq }) => {
     const info = await readTile({ x: 3853, y: 6815, z: 14, filename: "SkySat_Freeport_s03_20170831T162740Z3.tif" });
 
-    console.time("geowarping");
-
     const { forward, inverse } = proj4("EPSG:" + info.geotiff_srs, "EPSG:" + 3857);
-    const result = geowarp({
+    geowarp({
       debug_level: 0,
       forward,
       inverse,
@@ -360,7 +362,6 @@ const runTileTests = async ({
       method,
       round: true
     });
-    console.timeEnd("geowarping");
   });
 });
 

@@ -135,6 +135,10 @@ const result = geowarp({
   // function to reproject [x, y] point from cutline_srs to out_srs
   // required if you specify a cutline and the cutline is a different srs than out_srs,
   cutline_forward: proj4("EPSG:4326", "EPSG:3857").forward,
+
+  // optional, default is false
+  // enable experimental turbocharging via proj-turbo
+  turbo: true
 });
 ```
 result is

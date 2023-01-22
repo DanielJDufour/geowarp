@@ -7,7 +7,15 @@ const getTheoreticalMin = require("typed-array-ranges/get-min");
 const fasterMedian = require("faster-median");
 const reprojectBoundingBox = require("reproject-bbox/pluggable");
 const reprojectGeoJSON = require("reproject-geojson/pluggable");
+const { turbocharge } = require("proj-turbo");
 const xdim = require("xdim");
+
+const intersect = ([axmin, aymin, axmax, aymax], [bxmin, bymin, bxmax, bymax]) => [
+  Math.max(axmin, bxmin),
+  Math.max(aymin, bymin),
+  Math.min(axmax, bxmax),
+  Math.min(aymax, bymax)
+];
 
 const clamp = (n, min, max) => (n < min ? min : n > max ? max : n);
 
@@ -57,30 +65,27 @@ const min = ({ nums, in_no_data, out_no_data, theoretical_min }) => {
 };
 
 const mode = (nums, no_data) => {
-  switch (nums.length) {
-    case 0:
-      return undefined;
-    default:
-      const counts = {};
-      if (no_data) {
-        for (let i = 0; i < nums.length; i++) {
-          const n = nums[i];
-          if (n !== no_data) {
-            if (n in counts) counts[n].count++;
-            else counts[n] = { n, count: 1 };
-          }
-        }
-      } else {
-        for (let i = 0; i < nums.length; i++) {
-          const n = nums[i];
-          if (n in counts) counts[n].count++;
-          else counts[n] = { n, count: 1 };
-        }
+  if (nums.length === 0) return undefined;
+
+  const counts = {};
+  if (no_data) {
+    for (let i = 0; i < nums.length; i++) {
+      const n = nums[i];
+      if (n !== no_data) {
+        if (n in counts) counts[n].count++;
+        else counts[n] = { n, count: 1 };
       }
-      const items = Object.values(counts);
-      const count = items.sort((a, b) => Math.sign(b.count - a.count))[0].count;
-      return items.filter(it => it.count === count).map(it => it.n);
+    }
+  } else {
+    for (let i = 0; i < nums.length; i++) {
+      const n = nums[i];
+      if (n in counts) counts[n].count++;
+      else counts[n] = { n, count: 1 };
+    }
   }
+  const items = Object.values(counts);
+  const count = items.sort((a, b) => Math.sign(b.count - a.count))[0].count;
+  return items.filter(it => it.count === count).map(it => it.n);
 };
 
 // convert bbox in [xmin, ymin, xmax, ymax] format to a GeoJSON-like Polygon
@@ -129,8 +134,10 @@ const geowarp = function geowarp({
   inverse, // function to reproject [x, y] point from out_srs back to in_srs
   forward, // function to reproject [x, y] point from in_srs to out_srs
   cutline, // polygon or polygons defining areas to cut out (everything outside becomes no data)
+  cutline_bbox, // bounding box of the cutline geometry, can lead to a performance increase when combined with turbo
   cutline_srs, // spatial reference system of the cutline
-  cutline_forward // function to reproject [x, y] point from cutline_srs to out_srs
+  cutline_forward, // function to reproject [x, y] point from cutline_srs to out_srs
+  turbo = false // enable experimental turbocharging via proj-turbo
 }) {
   if (debug_level >= 1) console.log("[geowarp] starting");
   const start_time = debug_level >= 1 ? performance.now() : 0;
@@ -141,10 +148,12 @@ const geowarp = function geowarp({
   // support for deprecated alias of inverse
   inverse ??= arguments[0].reproject;
 
+  let in_bbox_out_srs, out_bbox_in_srs, intersect_bbox_in_srs, intersect_bbox_out_srs;
+
   if (!same_srs) {
     if (!in_bbox) throw new Error("[geowarp] can't reproject without in_bbox");
     if (!out_bbox) {
-      if (forward) out_bbox = reprojectBoundingBox({ bbox: in_bbox, reproject: forward });
+      if (forward) out_bbox = in_bbox_out_srs = intersect_bbox_out_srs = reprojectBoundingBox({ bbox: in_bbox, reproject: forward });
       else throw new Error("[geowarp] must specify out_bbox or forward");
     }
   }
@@ -222,6 +231,9 @@ const geowarp = function geowarp({
   out_pixel_width ??= (out_xmax - out_xmin) / out_width;
   if (debug_level >= 1) console.log("[geowarp] out_pixel_height:", out_pixel_height);
   if (debug_level >= 1) console.log("[geowarp] out_pixel_width:", out_pixel_width);
+
+  const half_in_pixel_height = in_pixel_height / 2;
+  const half_in_pixel_width = in_pixel_width / 2;
   const half_out_pixel_height = out_pixel_height / 2;
   const half_out_pixel_width = out_pixel_width / 2;
 
@@ -252,7 +264,19 @@ const geowarp = function geowarp({
       if (in_srs === cutline_srs) cutline_forward = forward;
       throw new Error("[geowarp] must specify cutline_forward when cutline_srs and out_srs differ");
     }
-    cutline = reprojectGeoJSON(cutline, { reproject: cutline_forward });
+
+    let cutline_forward_turbocharged;
+    if (cutline_forward && cutline_bbox) {
+      cutline_forward_turbocharged = turbocharge({
+        bbox: cutline_bbox,
+        debug_level,
+        quiet: true,
+        reproject: cutline_forward,
+        threshold: [half_out_pixel_width, half_out_pixel_height]
+      })?.reproject;
+    }
+
+    cutline = reprojectGeoJSON(cutline, { reproject: cutline_forward_turbocharged || cutline_forward });
   }
 
   if (cutline) {
@@ -309,11 +333,43 @@ const geowarp = function geowarp({
 
   if (debug_level >= 1) console.log("[geowarp] method:", method);
 
-  let out_bbox_in_srs, out_pixel_height_in_srs, out_pixel_width_in_srs, pixel_height_ratio, pixel_width_ratio;
+  let forward_turbocharged, inverse_turbocharged;
+  if (turbo) {
+    if (forward) {
+      out_bbox_in_srs ??= reprojectBoundingBox({ bbox: out_bbox, reproject: inverse });
+      intersect_bbox_in_srs ??= intersect(in_bbox, out_bbox_in_srs);
+      forward_turbocharged = turbocharge({
+        bbox: intersect_bbox_in_srs,
+        debug_level,
+        quiet: true,
+        reproject: forward,
+        threshold: [half_out_pixel_width, half_out_pixel_height]
+      });
+    }
+    if (inverse) {
+      in_bbox_out_srs ??= reprojectBoundingBox({ bbox: in_bbox, reproject: forward });
+      intersect_bbox_out_srs ??= intersect(out_bbox, in_bbox_out_srs);
+      inverse_turbocharged = turbocharge({
+        bbox: intersect_bbox_out_srs,
+        debug_level,
+        quiet: true,
+        reproject: inverse,
+        threshold: [half_in_pixel_width, half_in_pixel_height]
+      });
+    }
+  }
+  if (debug_level >= 2) {
+    if (forward_turbocharged) console.log("[geowarp] turbocharged forward");
+    if (inverse_turbocharged) console.log("[geowarp] turbocharged inverse");
+  }
+  const fwd = forward_turbocharged?.reproject || forward;
+  const inv = inverse_turbocharged?.reproject || inverse;
+
+  let out_pixel_height_in_srs, out_pixel_width_in_srs, pixel_height_ratio, pixel_width_ratio;
   if (method === "near-vectorize") {
     if (debug_level >= 2) console.log('[geowarp] choosing between "near" and "vectorize" for best speed');
 
-    out_bbox_in_srs = reprojectBoundingBox({ bbox: out_bbox, reproject: inverse });
+    out_bbox_in_srs ??= reprojectBoundingBox({ bbox: out_bbox, reproject: inverse });
 
     out_pixel_height_in_srs = (out_bbox_in_srs[3] - out_bbox_in_srs[1]) / out_height;
     out_pixel_width_in_srs = (out_bbox_in_srs[2] - out_bbox_in_srs[0]) / out_width;
@@ -382,7 +438,7 @@ const geowarp = function geowarp({
         const rect = polygon(pixel_bbox);
 
         // reproject pixel rectangle from input to output srs
-        const pixel_geometry_in_out_srs = reprojectGeoJSON(rect, { reproject: forward });
+        const pixel_geometry_in_out_srs = reprojectGeoJSON(rect, { reproject: fwd });
 
         dufour_peyton_intersection.calculate({
           debug: false,
@@ -410,7 +466,7 @@ const geowarp = function geowarp({
         for (let c = cstart; c < cend; c++) {
           const x = out_xmin + c * out_pixel_width + half_out_pixel_width;
           const pt_out_srs = [x, y];
-          const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inverse(pt_out_srs);
+          const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inv(pt_out_srs);
           const xInRasterPixels = Math.floor((x_in_srs - in_xmin) / in_pixel_width);
           const yInRasterPixels = Math.floor((in_ymax - y_in_srs) / in_pixel_height);
           let pixel = [];
@@ -439,6 +495,7 @@ const geowarp = function geowarp({
   } else if (method === "bilinear") {
     // see https://en.wikipedia.org/wiki/Bilinear_interpolation
     const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
+
     const rmax = Math.min(row_end, out_height);
 
     let y = out_ymax + half_out_pixel_height - row_start * out_pixel_height;
@@ -450,7 +507,7 @@ const geowarp = function geowarp({
         for (let c = cstart; c < cend; c++) {
           const x = out_xmin + c * out_pixel_width + half_out_pixel_width;
           const pt_out_srs = [x, y];
-          const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inverse(pt_out_srs);
+          const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inv(pt_out_srs);
 
           const xInRasterPixels = (x_in_srs - in_xmin) / in_pixel_width;
           const yInRasterPixels = (in_ymax - y_in_srs) / in_pixel_height;
@@ -531,7 +588,7 @@ const geowarp = function geowarp({
           // top, left, bottom, right is the sample area in the coordinate system of the output
 
           // convert to bbox of input coordinate system
-          const bbox_in_srs = same_srs ? [left, bottom, right, top] : reprojectBoundingBox({ bbox: [left, bottom, right, top], reproject: inverse });
+          const bbox_in_srs = same_srs ? [left, bottom, right, top] : reprojectBoundingBox({ bbox: [left, bottom, right, top], reproject: inv });
           if (debug_level >= 3) console.log("[geowarp] bbox_in_srs:", bbox_in_srs);
           const [xmin_in_srs, ymin_in_srs, xmax_in_srs, ymax_in_srs] = bbox_in_srs;
 
