@@ -431,7 +431,7 @@ const geowarp = function geowarp({
 
     if (!cutline || overlaps(in_bbox, cutline_bbox_in_srs)) {
       // update bounding box we sample from based on extent of cutline
-      [left, bottom, right, top] = intersect(out_bbox_in_srs, cutline_bbox_in_srs);
+      [left, bottom, right, top] = cutline ? intersect(out_bbox_in_srs, cutline_bbox_in_srs) : out_bbox_in_srs;
 
       if ((left < in_xmax && bottom < in_ymax && right > in_xmin) || top < in_ymin) {
         const in_row_start = Math.floor((in_ymax - top) / in_pixel_height);
