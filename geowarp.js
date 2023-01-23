@@ -10,13 +10,6 @@ const reprojectGeoJSON = require("reproject-geojson/pluggable");
 const { turbocharge } = require("proj-turbo");
 const xdim = require("xdim");
 
-// calculate bounding box for an array of coordinates
-const fast_bbox = coords => {
-  const xs = coords.map(([x, y]) => x);
-  const ys = coords.map(([x, y]) => y);
-  return [fastMin(xs), fastMin(ys), fastMax(xs), fastMax(ys)];
-};
-
 // check if two bounding boxes overlap or not
 const overlaps = ([axmin, aymin, axmax, aymax], [bxmin, bymin, bxmax, bymax]) => {
   const yOverlaps = bymin <= aymax && bymax >= aymin;
@@ -435,14 +428,14 @@ const geowarp = function geowarp({
 
       if ((left < in_xmax && bottom < in_ymax && right > in_xmin) || top < in_ymin) {
         const in_row_start = Math.floor((in_ymax - top) / in_pixel_height);
-        let in_row_start_clamped = clamp(in_row_start, 0, in_height - 1);
+        const in_row_start_clamped = clamp(in_row_start, 0, in_height - 1);
         const in_row_end = Math.min(Math.floor((in_ymax - bottom) / in_pixel_height), in_height - 1);
-        let in_row_end_clamped = clamp(in_row_end, 0, in_height - 1);
+        const in_row_end_clamped = clamp(in_row_end, 0, in_height - 1);
 
         const in_column_start = Math.floor((left - in_xmin) / in_pixel_width);
-        let in_column_start_clamped = clamp(in_column_start, 0, in_width - 1);
+        const in_column_start_clamped = clamp(in_column_start, 0, in_width - 1);
         const in_column_end = Math.min(Math.floor((right - in_xmin) / in_pixel_width), in_width - 1);
-        let in_column_end_clamped = clamp(in_column_end, 0, in_width - 1);
+        const in_column_end_clamped = clamp(in_column_end, 0, in_width - 1);
 
         let pixel_ymin = in_ymax - in_row_start_clamped * in_pixel_height;
         for (let r = in_row_start_clamped; r <= in_row_end_clamped; r++) {
