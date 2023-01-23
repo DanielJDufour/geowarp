@@ -10,6 +10,20 @@ const reprojectGeoJSON = require("reproject-geojson/pluggable");
 const { turbocharge } = require("proj-turbo");
 const xdim = require("xdim");
 
+// calculate bounding box for an array of coordinates
+const fast_bbox = coords => {
+  const xs = coords.map(([x, y]) => x);
+  const ys = coords.map(([x, y]) => y);
+  return [fastMin(xs), fastMin(ys), fastMax(xs), fastMax(ys)];
+};
+
+// check if two bounding boxes overlap or not
+const overlaps = ([axmin, aymin, axmax, aymax], [bxmin, bymin, bxmax, bymax]) => {
+  const yOverlaps = bymin <= aymax && bymax >= aymin;
+  const xOverlaps = bxmin <= axmax && bxmax >= axmin;
+  return xOverlaps && yOverlaps;
+};
+
 const intersect = ([axmin, aymin, axmax, aymax], [bxmin, bymin, bxmax, bymax]) => [
   Math.max(axmin, bxmin),
   Math.max(aymin, bymin),
@@ -393,17 +407,7 @@ const geowarp = function geowarp({
 
     // reproject bounding box of output (e.g. a tile) into the spatial reference system of the input data
     out_bbox_in_srs ??= reprojectBoundingBox({ bbox: out_bbox, reproject: inverse });
-    const [left, bottom, right, top] = out_bbox_in_srs;
-
-    const in_row_start = Math.floor((in_ymax - top) / in_pixel_height);
-    const in_row_start_clamped = clamp(in_row_start, 0, in_height - 1);
-    const in_row_end = Math.min(Math.floor((in_ymax - bottom) / in_pixel_height), in_height - 1);
-    const in_row_end_clamped = clamp(in_row_end, 0, in_height - 1);
-
-    const in_column_start = Math.floor((left - in_xmin) / in_pixel_width);
-    const in_column_start_clamped = clamp(in_column_start, 0, in_width - 1);
-    const in_column_end = Math.min(Math.floor((right - in_xmin) / in_pixel_width), in_width - 1);
-    const in_column_end_clamped = clamp(in_column_end, 0, in_width - 1);
+    let [left, bottom, right, top] = out_bbox_in_srs;
 
     out_pixel_height_in_srs ??= (top - bottom) / out_height;
     if (in_pixel_height < out_pixel_height_in_srs) {
@@ -419,39 +423,71 @@ const geowarp = function geowarp({
       }
     }
 
-    let pixel_ymin = in_ymax - in_row_start_clamped * in_pixel_height;
-    for (let r = in_row_start_clamped; r <= in_row_end_clamped; r++) {
-      const pixel_ymax = pixel_ymin;
-      pixel_ymin = pixel_ymax - in_pixel_height;
-      for (let c = in_column_start_clamped; c <= in_column_end_clamped; c++) {
-        let values = read_bands.map(band => select({ point: { band, row: r, column: c } }).value);
+    // if have a cutline do additional clamping
+    const cutline_in_srs = cutline && reprojectGeoJSON(cutline, { reproject: inverse });
 
-        // apply band math expression if applicable
-        if (process) values = process({ pixel: values });
+    // in the future we might want to pull the function getBoundingBox into its own repo
+    const cutline_bbox_in_srs = cutline && dufour_peyton_intersection.getBoundingBox(cutline_in_srs);
 
-        const pixel_xmin = in_xmin + c * in_pixel_width;
-        const pixel_xmax = pixel_xmin + in_pixel_width;
+    if (!cutline || overlaps(in_bbox, cutline_bbox_in_srs)) {
+      // update bounding box we sample from based on extent of cutline
+      [left, bottom, right, top] = intersect(out_bbox_in_srs, cutline_bbox_in_srs);
 
-        const pixel_bbox = [pixel_xmin, pixel_ymin, pixel_xmax, pixel_ymax];
+      if ((left < in_xmax && bottom < in_ymax && right > in_xmin) || top < in_ymin) {
+        const in_row_start = Math.floor((in_ymax - top) / in_pixel_height);
+        let in_row_start_clamped = clamp(in_row_start, 0, in_height - 1);
+        const in_row_end = Math.min(Math.floor((in_ymax - bottom) / in_pixel_height), in_height - 1);
+        let in_row_end_clamped = clamp(in_row_end, 0, in_height - 1);
 
-        // convert pixel to a rectangle polygon in srs of input data
-        const rect = polygon(pixel_bbox);
+        const in_column_start = Math.floor((left - in_xmin) / in_pixel_width);
+        let in_column_start_clamped = clamp(in_column_start, 0, in_width - 1);
+        const in_column_end = Math.min(Math.floor((right - in_xmin) / in_pixel_width), in_width - 1);
+        let in_column_end_clamped = clamp(in_column_end, 0, in_width - 1);
 
-        // reproject pixel rectangle from input to output srs
-        const pixel_geometry_in_out_srs = reprojectGeoJSON(rect, { reproject: fwd });
+        let pixel_ymin = in_ymax - in_row_start_clamped * in_pixel_height;
+        for (let r = in_row_start_clamped; r <= in_row_end_clamped; r++) {
+          const pixel_ymax = pixel_ymin;
+          pixel_ymin = pixel_ymax - in_pixel_height;
+          for (let c = in_column_start_clamped; c <= in_column_end_clamped; c++) {
+            let values = read_bands.map(band => select({ point: { band, row: r, column: c } }).value);
 
-        dufour_peyton_intersection.calculate({
-          debug: false,
-          raster_bbox: out_bbox,
-          raster_height: out_height,
-          raster_width: out_width,
-          pixel_height: out_pixel_height,
-          pixel_width: out_pixel_width,
-          geometry: pixel_geometry_in_out_srs,
-          per_pixel: ({ row, column }) => {
-            insert({ pixel: values, row, column });
+            // apply band math expression if applicable
+            if (process) values = process({ pixel: values });
+
+            const pixel_xmin = in_xmin + c * in_pixel_width;
+            const pixel_xmax = pixel_xmin + in_pixel_width;
+
+            const pixel_bbox = [pixel_xmin, pixel_ymin, pixel_xmax, pixel_ymax];
+
+            // convert pixel to a rectangle polygon in srs of input data
+            const rect = polygon(pixel_bbox);
+
+            // reproject pixel rectangle from input to output srs
+            const pixel_geometry_in_out_srs = reprojectGeoJSON(rect, { reproject: fwd });
+
+            const intersect_options = {
+              debug: false,
+              raster_bbox: out_bbox,
+              raster_height: out_height,
+              raster_width: out_width,
+              pixel_height: out_pixel_height,
+              pixel_width: out_pixel_width,
+              geometry: pixel_geometry_in_out_srs
+            };
+            if (cutline) {
+              intersect_options.per_pixel = ({ row, column }) => {
+                if (segments_by_row[row].some(([start, end]) => column >= start && column <= end)) {
+                  insert({ pixel: values, row, column });
+                }
+              };
+            } else {
+              intersect_options.per_pixel = ({ row, column }) => {
+                insert({ pixel: values, row, column });
+              };
+            }
+            dufour_peyton_intersection.calculate(intersect_options);
           }
-        });
+        }
       }
     }
   } else if (method === "near") {

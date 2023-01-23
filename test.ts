@@ -32,7 +32,7 @@ const writePNGSync = ({ h, w, data, filepath }: { h: number; w: number; data: an
   writeFileSync(`${filepath}.png`, Buffer.from(buf));
 };
 
-["near", "median", "bilinear"].forEach(method => {
+["vectorize", "near", "median", "bilinear"].forEach(method => {
   test("cutline " + method, async ({ eq }) => {
     const cutline = JSON.parse(findAndRead("sri-lanka-hi-res.geojson", { encoding: "utf-8" }));
     const filename = "gadas.tif";
