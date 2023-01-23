@@ -305,6 +305,7 @@ const runTileTests = async ({
     out_bands_array: [undefined, [0], [2, 1, 0]],
     most_common_pixels: [
       "121,110,99",
+      "128,124,122",
       "132,127,125",
       "136,130,128",
       "136,133,139",
