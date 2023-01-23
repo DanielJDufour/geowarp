@@ -12,6 +12,7 @@
     "clean": "rm -fr ./test-data/*.png",
     "format": "npx prettier --arrow-parens=avoid --print-width=160 --trailing-comma=none --write *.js *.ts",
     "lint": "npx eslint *.js",
+    "prepublish": "npm run lint",
     "setup": "cd test-data && ./setup.sh",
     "test": "npm run clean && npm run test:js && npm run test:ts",
     "test:js": "LOG_SKIP=false TIME=true node test.js",
