@@ -291,6 +291,8 @@ const geowarp = function geowarp({
     cutline = reprojectGeoJSON(cutline, { reproject: cutline_forward_turbocharged || cutline_forward });
   }
 
+  const full_width_row_segment = [0, out_width - 1];
+
   if (cutline) {
     const intersections = dufour_peyton_intersection.calculate({
       raster_bbox: out_bbox,
@@ -305,8 +307,6 @@ const geowarp = function geowarp({
     intersections.rows.forEach((segs, irow) => {
       segments_by_row[irow] = segs;
     });
-
-    const full_width_row_segment = [0, out_width - 1];
 
     if (cutline_strategy === "inside") {
       // flip the inside/outside segments
