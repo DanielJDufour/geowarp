@@ -148,7 +148,16 @@ const result = geowarp({
 
   // optional, default is false
   // enable experimental turbocharging via proj-turbo
-  turbo: true
+  turbo: true,
+
+  // completely optional and not recommended
+  // you don't want this in most cases
+  // over-ride the default function for inserting data into the output multidimensional array
+  // useful if writing to an alternative object like a canvas
+  insert: ({ row, column, pixel }) => {
+    context.fillStyle = toColor(pixel);
+    context.fillRect(column, row, 1, 1);
+  }
 });
 ```
 result is

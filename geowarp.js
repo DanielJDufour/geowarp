@@ -146,7 +146,8 @@ const geowarp = function geowarp({
   cutline_srs, // spatial reference system of the cutline
   cutline_forward, // function to reproject [x, y] point from cutline_srs to out_srs
   cutline_strategy = "outside", // cut out the pixels inside or outside the cutline
-  turbo = false // enable experimental turbocharging via proj-turbo
+  turbo = false, // enable experimental turbocharging via proj-turbo
+  insert // over-ride function that inserts data into output multi-dimensional array
 }) {
   if (debug_level >= 1) console.log("[geowarp] starting");
   const start_time = debug_level >= 1 ? performance.now() : 0;
@@ -350,16 +351,18 @@ const geowarp = function geowarp({
     arrayTypes: out_array_types
   }).data;
 
-  const update = xdim.prepareUpdate({ data: out_data, layout: out_layout, sizes: out_sizes });
+  if (typeof insert !== "function") {
+    const update = xdim.prepareUpdate({ data: out_data, layout: out_layout, sizes: out_sizes });
 
-  const insert = ({ row, column, pixel }) => {
-    pixel.forEach((value, band) => {
-      update({
-        point: { band, row, column },
-        value
+    insert = ({ row, column, pixel }) => {
+      pixel.forEach((value, band) => {
+        update({
+          point: { band, row, column },
+          value
+        });
       });
-    });
-  };
+    };
+  }
 
   row_end ??= out_height;
 
