@@ -72,6 +72,10 @@ const result = geowarp({
   // single or multi-dimensional array that will hold the output
   out_data: [[[[],[],[],...],[[],[],[],...],[[],[],[],...],[[],[],[],...],...]],
 
+  // optional, default is null
+  // the no data value for your output data
+  out_no_data: -99,
+
   // layout of the result using xdim layout syntax
   // see: https://github.com/danieljdufour/xdim
   out_layout: "[row][column][band]",
@@ -135,6 +139,12 @@ const result = geowarp({
   // function to reproject [x, y] point from cutline_srs to out_srs
   // required if you specify a cutline and the cutline is a different srs than out_srs,
   cutline_forward: proj4("EPSG:4326", "EPSG:3857").forward,
+
+  // optional, default is "outside"
+  // cut out the pixels "inside" or "outside" the cutline
+  // in other words, if your cutline_strategy is "inside",
+  // geowarp will set every pixel inside your cutline geometry to out_no_data
+  cutline_strategy: "inside",
 
   // optional, default is false
   // enable experimental turbocharging via proj-turbo

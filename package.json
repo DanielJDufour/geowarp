@@ -63,6 +63,7 @@
     "proj-turbo": "^0.0.1",
     "reproject-bbox": "^0.5.0",
     "reproject-geojson": "^0.3.0",
+    "segflip": "^0.0.2",
     "typed-array-ranges": "^0.0.0",
     "xdim": "^1.10.1"
   }

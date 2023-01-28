@@ -49,6 +49,7 @@ export default function geowarp(options: {
   cutline_bbox?: bbox | undefined;
   cutline_srs?: number | string | undefined;
   cutline_forward?: reproject | undefined;
+  cutline_strategy?: "inside" | "outside" | string | undefined;
   turbo?: boolean | undefined;
 }): {
   data: number[] | number[][] | number[][][];

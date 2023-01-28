@@ -22,48 +22,51 @@ const writePNGSync = ({ h, w, data, filepath }) => {
   fs.writeFileSync(`${filepath}.png`, buf);
 };
 
-["near", "median", "bilinear"].forEach(method => {
-  test("cutline " + method, async ({ eq }) => {
-    const cutline = JSON.parse(findAndRead("sri-lanka-hi-res.geojson", { encoding: "utf-8" }));
-    const filename = "gadas.tif";
-    const filepath = path.resolve(__dirname, "./test-data", filename);
-    const geotiff = await GeoTIFF.fromFile(filepath);
-    const image = await geotiff.getImage(0);
-    const rasters = await image.readRasters();
-    const in_bbox = image.getBoundingBox();
-    const height = image.getHeight();
-    const width = image.getWidth();
-    // ProjectedCSTypeGeoKey says 32767, but PCSCitationGeoKey says ESRI PE String = 3857.esriwkt
-    const in_srs = 3857;
-    const out_srs = "EPSG:5234"; // Kandawala / Sri Lanka Grid
-    const { forward, inverse } = proj4("EPSG:" + in_srs, out_srs);
+["vectorize", "near", "median", "bilinear"].forEach(method => {
+  ["inside", "outside"].forEach(cutline_strategy => {
+    test("cutline " + cutline_strategy + " " + method, async ({ eq }) => {
+      const cutline = JSON.parse(findAndRead("sri-lanka-hi-res.geojson", { encoding: "utf-8" }));
+      const filename = "gadas.tif";
+      const filepath = path.resolve(__dirname, "./test-data", filename);
+      const geotiff = await GeoTIFF.fromFile(filepath);
+      const image = await geotiff.getImage(0);
+      const rasters = await image.readRasters();
+      const in_bbox = image.getBoundingBox();
+      const height = image.getHeight();
+      const width = image.getWidth();
+      // ProjectedCSTypeGeoKey says 32767, but PCSCitationGeoKey says ESRI PE String = 3857.esriwkt
+      const in_srs = 3857;
+      const out_srs = "EPSG:5234"; // Kandawala / Sri Lanka Grid
+      const { forward, inverse } = proj4("EPSG:" + in_srs, out_srs);
 
-    const { data } = geowarp({
-      debug_level: 2,
-      in_bbox,
-      in_data: rasters,
-      in_layout: "[band][row,column]",
-      in_srs,
-      in_height: height,
-      in_width: width,
-      out_array_types: ["Array", "Array", "Uint8ClampedArray"],
-      out_height: height,
-      out_width: width,
-      out_layout: "[band][row][column]",
-      out_srs,
-      forward,
-      inverse,
-      cutline,
-      cutline_srs: 4326,
-      cutline_forward: proj4("EPSG:4326", out_srs).forward,
-      method
+      const { data } = geowarp({
+        debug_level: 0,
+        in_bbox,
+        in_data: rasters,
+        in_layout: "[band][row,column]",
+        in_srs,
+        in_height: height,
+        in_width: width,
+        out_array_types: ["Array", "Array", "Uint8ClampedArray"],
+        out_height: height,
+        out_width: width,
+        out_layout: "[band][row][column]",
+        out_srs,
+        forward,
+        inverse,
+        cutline,
+        cutline_srs: 4326,
+        cutline_forward: proj4("EPSG:4326", out_srs).forward,
+        cutline_strategy,
+        method
+      });
+
+      if (process.env.WRITE) {
+        writePNGSync({ h: height, w: width, data, filepath: `./test-data/gadas-cutline-${cutline_strategy}-${method}` });
+      }
+      eq(data.length, 4); // check band count
+      eq(data[0][0].constructor.name, "Uint8ClampedArray");
     });
-
-    if (process.env.WRITE) {
-      writePNGSync({ h: height, w: width, data, filepath: "./test-data/gadas-cutline-" + method });
-    }
-    eq(data.length, 4); // check band count
-    eq(data[0][0].constructor.name, "Uint8ClampedArray");
   });
 });
 

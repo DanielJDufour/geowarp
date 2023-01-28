@@ -8,6 +8,7 @@ const fasterMedian = require("faster-median");
 const reprojectBoundingBox = require("reproject-bbox/pluggable");
 const reprojectGeoJSON = require("reproject-geojson/pluggable");
 const { turbocharge } = require("proj-turbo");
+const segflip = require("segflip");
 const xdim = require("xdim");
 
 // check if two bounding boxes overlap or not
@@ -144,6 +145,7 @@ const geowarp = function geowarp({
   cutline_bbox, // bounding box of the cutline geometry, can lead to a performance increase when combined with turbo
   cutline_srs, // spatial reference system of the cutline
   cutline_forward, // function to reproject [x, y] point from cutline_srs to out_srs
+  cutline_strategy = "outside", // cut out the pixels inside or outside the cutline
   turbo = false // enable experimental turbocharging via proj-turbo
 }) {
   if (debug_level >= 1) console.log("[geowarp] starting");
@@ -214,6 +216,9 @@ const geowarp = function geowarp({
 
   out_pixel_depth ??= out_bands?.length ?? read_bands?.length ?? in_pixel_depth;
 
+  if (debug_level >= 1) console.log("[geowarp] out_height:", out_height);
+  if (debug_level >= 1) console.log("[geowarp] out_width:", out_width);
+
   // just resizing an image without reprojection
   if (same_srs && eq(in_bbox, out_bbox)) {
     out_srs = in_srs = null;
@@ -264,7 +269,7 @@ const geowarp = function geowarp({
   }
 
   // if cutline isn't in the projection of the output, reproject it
-  const segments_by_row = new Array(out_height).fill(0).map(() => []);
+  let segments_by_row = new Array(out_height).fill(0).map(() => []);
   if (cutline && cutline_srs !== out_srs) {
     if (!cutline_forward) {
       // fallback to checking if we can use forward
@@ -287,19 +292,39 @@ const geowarp = function geowarp({
   }
 
   if (cutline) {
-    dufour_peyton_intersection.calculate({
+    const intersections = dufour_peyton_intersection.calculate({
       raster_bbox: out_bbox,
       raster_height: out_height,
       raster_width: out_width,
       pixel_height: out_pixel_height,
       pixel_width: out_pixel_width,
-      geometry: cutline,
-      per_row_segment: ({ row, columns }) => {
-        segments_by_row[row].push(columns);
-      }
+      geometry: cutline
     });
+
+    // we don't use per_row_segment because that can lead to overlap
+    intersections.rows.forEach((segs, irow) => {
+      segments_by_row[irow] = segs;
+    });
+
+    const full_width_row_segment = [0, out_width - 1];
+
+    if (cutline_strategy === "inside") {
+      // flip the inside/outside segments
+
+      segments_by_row = segments_by_row.map((segs, i) => {
+        if (segs.length === 0) {
+          return [full_width_row_segment];
+        } else {
+          return segflip({
+            segments: segs,
+            min: 0,
+            max: out_width - 1,
+            debug: false
+          });
+        }
+      });
+    }
   } else {
-    const full_width_row_segment = [0, out_width];
     for (let row_index = 0; row_index < out_height; row_index++) {
       segments_by_row[row_index].push(full_width_row_segment);
     }
@@ -424,7 +449,7 @@ const geowarp = function geowarp({
 
     if (!cutline || overlaps(in_bbox, cutline_bbox_in_srs)) {
       // update bounding box we sample from based on extent of cutline
-      [left, bottom, right, top] = cutline ? intersect(out_bbox_in_srs, cutline_bbox_in_srs) : out_bbox_in_srs;
+      [left, bottom, right, top] = cutline && cutline_strategy !== "inside" ? intersect(out_bbox_in_srs, cutline_bbox_in_srs) : out_bbox_in_srs;
 
       if ((left < in_xmax && bottom < in_ymax && right > in_xmin) || top < in_ymin) {
         const in_row_start = Math.floor((in_ymax - top) / in_pixel_height);
