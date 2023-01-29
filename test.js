@@ -9,6 +9,8 @@ const readBoundingBox = require("geotiff-read-bbox");
 const proj4 = require("proj4-fully-loaded");
 const reprojectBoundingBox = require("reproject-bbox");
 const tilebelt = require("@mapbox/tilebelt");
+const { getPalette } = require("geotiff-palette");
+const xdim = require("xdim");
 const writeImage = require("write-image");
 
 const geowarp = require("./geowarp");
@@ -402,5 +404,73 @@ const runTileTests = async ({
       true
     );
     eq(result.read_bands, [0, 1]);
+  });
+});
+
+test("edge case: web mercator tile from UTM", async ({ eq }) => {
+  const filepath = path.resolve(__dirname, "./test-data/utm.tif");
+  const geotiff = await GeoTIFF.fromFile(filepath);
+  const image = await geotiff.getImage();
+  const rasters = await image.readRasters();
+  const palette = getPalette(image);
+  const in_width = image.getWidth(); // 100
+  const in_height = image.getHeight(); // 100
+
+  const in_data = xdim.transform({
+    data: rasters,
+    from: "[band][row,column]",
+    to: "[band][row][column]",
+    sizes: {
+      band: 1,
+      row: in_height,
+      column: in_width
+    }
+  }).data;
+  const in_srs = 32617;
+  const out_srs = 3857;
+
+  const { inverse, forward } = proj4("EPSG:" + in_srs, "EPSG:" + out_srs);
+
+  // tile x: 1152, y: 1535, z: 12,
+  const out_bbox = [-8766409.899970293, 5009418.403634399, -8756625.96034979, 5019161.025317816];
+  const out_height = 255;
+  const out_width = 256;
+
+  ["vectorize", "near", "bilinear", "median"].forEach(method => {
+    console.log("method:", method);
+    const options = {
+      debug_level: 0,
+      inverse,
+      forward,
+
+      expr: ({ pixel }) => {
+        return palette[pixel[0]] || [0, 0, 0, 0];
+      },
+
+      // regarding input data
+      in_bbox: image.getBoundingBox(),
+      in_data,
+      in_layout: "[band][row][column]",
+      in_srs,
+      in_width,
+      in_height,
+
+      // regarding location to paint
+      out_array_types: ["Array", "Array", "Array"],
+      out_bbox,
+      out_layout: "[band][row][column]",
+      out_pixel_depth: 4,
+      out_srs,
+      out_height,
+      out_width,
+      method,
+      round: true
+    };
+
+    const warped = geowarp(options);
+
+    if (process.env.WRITE) {
+      writePNGSync({ h: out_height, w: out_width, data: warped.data, filepath: `./test-data/edge-case-utm-` + method });
+    }
   });
 });
