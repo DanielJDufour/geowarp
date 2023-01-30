@@ -474,3 +474,69 @@ test("edge case: web mercator tile from UTM", async ({ eq }) => {
     }
   });
 });
+
+test("OpenLandMap", async ({ eq }) => {
+  const filepath = path.resolve(__dirname, "./test-data/lcv_landuse.cropland_hyde_p_10km_s0..0cm_2016_v3.2.tif");
+  const geotiff = await GeoTIFF.fromFile(filepath);
+  const image = await geotiff.getImage();
+  const rasters = await image.readRasters();
+  const in_width = image.getWidth();
+  const in_height = image.getHeight();
+
+  const in_data = xdim.transform({
+    data: rasters,
+    from: "[band][row,column]",
+    to: "[band][row][column]",
+    sizes: {
+      band: 1,
+      row: in_height,
+      column: in_width
+    }
+  }).data;
+  const in_srs = 4326;
+  const out_srs = 3857;
+
+  const { inverse, forward } = proj4("EPSG:" + in_srs, "EPSG:" + out_srs);
+
+  // tile x: 1152, y: 1535, z: 12,
+  const tile_bbox = require("@mapbox/tilebelt").tileToBBOX([0, 0, 1]);
+  const out_bbox = reprojectBoundingBox({ bbox: tile_bbox, from: 4326, to: 3857 });
+
+  console.log({ tile_bbox, out_bbox });
+  const out_height = 1;
+  const out_width = 1;
+
+  // const methods = ["vectorize", "near", "bilinear", "median"];
+  const methods = ["near"];
+  methods.forEach(method => {
+    console.log("method:", method);
+    const options = {
+      debug_level: 5,
+      inverse,
+      forward,
+
+      // regarding input data
+      in_bbox: image.getBoundingBox(),
+      in_data,
+      in_layout: "[band][row][column]",
+      in_srs,
+      in_width,
+      in_height,
+
+      // regarding location to paint
+      out_array_types: ["Array", "Array", "Array"],
+      out_bbox,
+      out_layout: "[band][row][column]",
+      out_srs,
+      out_height,
+      out_width,
+      method,
+      round: true
+    };
+
+    const warped = geowarp(options);
+
+    const value = warped.data[0][0][out_width - 1];
+    eq(value !== null, true);
+  });
+});

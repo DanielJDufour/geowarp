@@ -312,7 +312,7 @@ const geowarp = function geowarp({
     if (cutline_strategy === "inside") {
       // flip the inside/outside segments
 
-      segments_by_row = segments_by_row.map((segs, i) => {
+      segments_by_row = segments_by_row.map(segs => {
         if (segs.length === 0) {
           return [full_width_row_segment];
         } else {
@@ -519,7 +519,7 @@ const geowarp = function geowarp({
       const segments = segments_by_row[r];
       for (let iseg = 0; iseg < segments.length; iseg++) {
         const [cstart, cend] = segments[iseg];
-        for (let c = cstart; c < cend; c++) {
+        for (let c = cstart; c <= cend; c++) {
           const x = out_xmin + c * out_pixel_width + half_out_pixel_width;
           const pt_out_srs = [x, y];
           const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inv(pt_out_srs);
@@ -566,7 +566,7 @@ const geowarp = function geowarp({
       const segments = segments_by_row[r];
       for (let iseg = 0; iseg < segments.length; iseg++) {
         const [cstart, cend] = segments[iseg];
-        for (let c = cstart; c < cend; c++) {
+        for (let c = cstart; c <= cend; c++) {
           const x = out_xmin + c * out_pixel_width + half_out_pixel_width;
           const pt_out_srs = [x, y];
           const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inv(pt_out_srs);
@@ -655,7 +655,7 @@ const geowarp = function geowarp({
       for (let iseg = 0; iseg < segments.length; iseg++) {
         const [cstart, cend] = segments[iseg];
         right = out_xmin + out_pixel_width * cstart;
-        for (let c = cstart; c < cend; c++) {
+        for (let c = cstart; c <= cend; c++) {
           left = right;
           right = left + out_pixel_width;
           // top, left, bottom, right is the sample area in the coordinate system of the output
