@@ -1,6 +1,6 @@
 {
   "name": "geowarp",
-  "version": "1.15.0",
+  "version": "1.16.0",
   "description": "Super Low-Level Raster Reprojection and Resampling Library",
   "main": "geowarp.js",
   "types": "geowarp.d.ts",
