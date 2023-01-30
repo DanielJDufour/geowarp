@@ -400,6 +400,8 @@ const geowarp = function geowarp({
   const fwd = forward_turbocharged?.reproject || forward;
   const inv = inverse_turbocharged?.reproject || inverse;
 
+  const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
+
   let out_pixel_height_in_srs, out_pixel_width_in_srs, pixel_height_ratio, pixel_width_ratio;
   if (method === "near-vectorize") {
     if (debug_level >= 2) console.log('[geowarp] choosing between "near" and "vectorize" for best speed');
@@ -419,13 +421,11 @@ const geowarp = function geowarp({
       if (debug_level >= 1) console.log('[geowarp] selected "vectorize" method as it is likely to be faster');
     } else {
       method = "near";
-      if (debug_level >= 1) console.log('geowarp] selected "near" method as it is likely to be faster');
+      if (debug_level >= 1) console.log('[geowarp] selected "near" method as it is likely to be faster');
     }
   }
 
   if (method === "vectorize") {
-    const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
-
     // reproject bounding box of output (e.g. a tile) into the spatial reference system of the input data
     out_bbox_in_srs ??= reprojectBoundingBox({ bbox: out_bbox, reproject: inverse });
     let [left, bottom, right, top] = out_bbox_in_srs;
@@ -512,7 +512,6 @@ const geowarp = function geowarp({
       }
     }
   } else if (method === "near") {
-    const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
     const rmax = Math.min(row_end, out_height);
     let y = out_ymax + half_out_pixel_height - row_start * out_pixel_height;
     for (let r = row_start; r < rmax; r++) {
@@ -526,23 +525,30 @@ const geowarp = function geowarp({
           const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inv(pt_out_srs);
           const xInRasterPixels = Math.floor((x_in_srs - in_xmin) / in_pixel_width);
           const yInRasterPixels = Math.floor((in_ymax - y_in_srs) / in_pixel_height);
-          let pixel = [];
-          for (let i = 0; i < read_bands.length; i++) {
-            const read_band = read_bands[i];
-            let { value: pixelBandValue } = select({
-              point: {
-                band: read_band,
-                row: yInRasterPixels,
-                column: xInRasterPixels
-              }
-            });
 
-            if (pixelBandValue === undefined || pixelBandValue === in_no_data) {
-              pixelBandValue = out_no_data;
-            } else if (round) {
-              pixelBandValue = Math.round(pixelBandValue);
+          let pixel = [];
+
+          if (xInRasterPixels < 0 || yInRasterPixels < 0 || xInRasterPixels >= in_width || yInRasterPixels >= in_height) {
+            // through reprojection, we can sometimes find ourselves just across the edge
+            pixel = new Array(read_bands.length).fill(out_no_data);
+          } else {
+            for (let i = 0; i < read_bands.length; i++) {
+              const read_band = read_bands[i];
+              let { value: pixelBandValue } = select({
+                point: {
+                  band: read_band,
+                  row: yInRasterPixels,
+                  column: xInRasterPixels
+                }
+              });
+
+              if (pixelBandValue === undefined || pixelBandValue === in_no_data) {
+                pixelBandValue = out_no_data;
+              } else if (round) {
+                pixelBandValue = Math.round(pixelBandValue);
+              }
+              pixel.push(pixelBandValue);
             }
-            pixel.push(pixelBandValue);
           }
           if (process) pixel = process({ pixel });
           insert({ row: r, column: c, pixel });
@@ -551,7 +557,6 @@ const geowarp = function geowarp({
     }
   } else if (method === "bilinear") {
     // see https://en.wikipedia.org/wiki/Bilinear_interpolation
-    const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
 
     const rmax = Math.min(row_end, out_height);
 
@@ -579,13 +584,24 @@ const geowarp = function geowarp({
           const topWeight = bottom - yInRasterPixels;
           const bottomWeight = yInRasterPixels - top;
 
+          const leftInvalid = left < 0 || left >= in_width;
+          const rightInvalid = right < 0 || right >= in_width;
+          const topInvalid = top < 0 || top >= in_height;
+          const bottomInvalid = bottom < 0 || bottom >= in_height;
+
+          const upperLeftInvalid = topInvalid || leftInvalid;
+          const upperRightInvalid = topInvalid || rightInvalid;
+          const lowerLeftInvalid = bottomInvalid || leftInvalid;
+          const lowerRightInvalid = bottomInvalid || rightInvalid;
+
           let pixel = new Array();
           for (let i = 0; i < read_bands.length; i++) {
             const read_band = read_bands[i];
-            const { value: upperLeftValue } = select({ point: { band: read_band, row: top, column: left } });
-            const { value: upperRightValue } = select({ point: { band: read_band, row: top, column: right } });
-            const { value: lowerLeftValue } = select({ point: { band: read_band, row: bottom, column: left } });
-            const { value: lowerRightValue } = select({ point: { band: read_band, row: bottom, column: right } });
+
+            const upperLeftValue = upperLeftInvalid ? in_no_data : select({ point: { band: read_band, row: top, column: left } }).value;
+            const upperRightValue = upperRightInvalid ? in_no_data : select({ point: { band: read_band, row: top, column: right } }).value;
+            const lowerLeftValue = lowerLeftInvalid ? in_no_data : select({ point: { band: read_band, row: bottom, column: left } }).value;
+            const lowerRightValue = lowerRightInvalid ? in_no_data : select({ point: { band: read_band, row: bottom, column: right } }).value;
 
             let topValue;
             if ((upperLeftValue === undefined || upperLeftValue === in_no_data) && (upperRightValue === undefined || upperRightValue === in_no_data)) {
