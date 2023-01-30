@@ -470,7 +470,7 @@ test("edge case: web mercator tile from UTM", async ({ eq }) => {
     const warped = geowarp(options);
 
     if (process.env.WRITE) {
-      writePNGSync({ h: out_height, w: out_width, data: warped.data, filepath: `./test-data/edge-case-utm-` + method });
+      writePNGSync({ h: out_height, w: out_width, data: warped.data, filepath: "./test-data/edge-case-utm-" + method });
     }
   });
 });
