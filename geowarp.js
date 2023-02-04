@@ -413,7 +413,11 @@ const geowarp = function geowarp({
   }
 
   const should_skip =
-    skip_no_data_strategy === "any" ? px => px.includes(in_no_data) : skip_no_data_strategy === "all" ? px => px.every(n => n === in_no_data) : () => false;
+    skip_no_data_strategy === "any"
+      ? px => px.includes(undefined) || px.includes(in_no_data)
+      : skip_no_data_strategy === "all"
+      ? px => px.every(n => n === in_no_data)
+      : () => false;
 
   if (method === "vectorize") {
     // reproject bounding box of output (e.g. a tile) into the spatial reference system of the input data
@@ -632,6 +636,31 @@ const geowarp = function geowarp({
       }
     }
   } else {
+    let calc;
+    if (typeof method === "function") {
+      calc = values => (values.length === 0 ? in_no_data : method({ values }));
+    } else if (method === "max") {
+      calc = values => (values.length === 0 ? in_no_data : fastMax(values, { no_data: in_no_data, theoretical_max }));
+    } else if (method === "mean") {
+      calc = values => (values.length === 0 ? in_no_data : mean(values, in_no_data));
+    } else if (method === "median") {
+      calc = values => (values.length === 0 ? in_no_data : fasterMedian({ nums: values, no_data: in_no_data }));
+    } else if (method === "min") {
+      calc = values => (values.length === 0 ? in_no_data : fastMin(values, { no_data: in_no_data, theoretical_min }));
+    } else if (method === "mode") {
+      calc = values => (values.length === 0 ? in_no_data : mode(values)[0]);
+    } else if (method === "mode-max") {
+      calc = values => (values.length === 0 ? in_no_data : fastMax(mode(values)));
+    } else if (method === "mode-mean") {
+      calc = values => (values.length === 0 ? in_no_data : mean(mode(values)));
+    } else if (method === "mode-median") {
+      calc = values => (values.length === 0 ? in_no_data : fasterMedian({ nums: mode(values) }));
+    } else if (method === "mode-min") {
+      calc = values => (values.length === 0 ? in_no_data : fastMin(mode(values)));
+    } else {
+      throw new Error(`[geowarp] unknown method "${method}"`);
+    }
+
     let top, left, bottom, right;
     bottom = out_ymax - row_start * row_start;
     const rmax = Math.min(row_end, out_height);
@@ -703,42 +732,8 @@ const geowarp = function geowarp({
                   column: [leftSample, Math.max(leftSample, rightSample - 1)]
                 }
               });
-
-              let pixelBandValue = in_no_data;
-              if (typeof method === "function") {
-                pixelBandValue = method({ values });
-              } else if (method === "max") {
-                pixelBandValue = fastMax(values, { no_data: in_no_data, theoretical_max });
-              } else if (method === "mean") {
-                pixelBandValue = mean(values, in_no_data);
-              } else if (method === "median") {
-                pixelBandValue = fasterMedian({ nums: values, no_data: in_no_data });
-              } else if (method === "min") {
-                pixelBandValue = fastMin(values, { no_data: in_no_data, theoretical_min });
-              } else if (method.startsWith("mode")) {
-                const modes = mode(values);
-                const len = modes.length;
-                if (len === 0) {
-                  // do nothing because pixelBandValue default is no data
-                } else if (len === 1) {
-                  pixelBandValue = modes[0];
-                } else {
-                  if (method === "mode") {
-                    pixelBandValue = modes[0];
-                  } else if (method === "mode-max") {
-                    pixelBandValue = fastMax(modes);
-                  } else if (method === "mode-mean") {
-                    pixelBandValue = mean(modes);
-                  } else if (method === "mode-median") {
-                    pixelBandValue = fasterMedian({ nums: modes });
-                  } else if (method === "mode-min") {
-                    pixelBandValue = fastMin(modes);
-                  }
-                }
-              } else {
-                throw new Error(`[geowarp] unknown method "${method}"`);
-              }
-              raw_values.push(pixelBandValue);
+              const valid_values = values.filter(v => v !== undefined && v !== in_no_data);
+              raw_values.push(calc(valid_values));
             }
           }
 
