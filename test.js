@@ -378,7 +378,7 @@ const runTileTests = async ({
     });
 
     if (process.env.WRITE) {
-      writePNGSync({ h: 256, w: 256, data: result.data, filepath: "./test-output/" + method + "-performance.png" });
+      writePNGSync({ h: 256, w: 256, data: result.data, filepath: "./test-output/" + method + "-performance" });
     }
   });
 });
