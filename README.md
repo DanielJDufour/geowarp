@@ -157,7 +157,11 @@ const result = geowarp({
   insert: ({ row, column, pixel }) => {
     context.fillStyle = toColor(pixel);
     context.fillRect(column, row, 1, 1);
-  }
+  },
+
+  // skip writing a pixel if "any" or "all" its values are no data
+  // default is undefined, meaning don't skip no data values
+  skip_no_data_strategy: "any"
 });
 ```
 result is

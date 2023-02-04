@@ -108,6 +108,7 @@ dist
 pnpm-lock.yaml
 tmp/
 test-data/
+test-output/
 
 # backup files
 *bak*

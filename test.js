@@ -64,7 +64,7 @@ const writePNGSync = ({ h, w, data, filepath }) => {
       });
 
       if (process.env.WRITE) {
-        writePNGSync({ h: height, w: width, data, filepath: `./test-data/gadas-cutline-${cutline_strategy}-${method}` });
+        writePNGSync({ h: height, w: width, data, filepath: `./test-output/gadas-cutline-${cutline_strategy}-${method}` });
       }
       eq(data.length, 4); // check band count
       eq(data[0][0].constructor.name, "Uint8ClampedArray");
@@ -106,7 +106,7 @@ test("reproject without clipping", async ({ eq }) => {
   });
 
   if (process.env.WRITE) {
-    writePNGSync({ h: height, w: width, data, filepath: "./test-data/reproject-without-clipping.tif" });
+    writePNGSync({ h: height, w: width, data, filepath: "./test-output/reproject-without-clipping.tif" });
   }
   eq(data.length, 3); // check band count
 });
@@ -154,33 +154,39 @@ test("bug: reprojecting to EPSG:26910", async ({ eq }) => {
   });
 
   if (process.env.WRITE) {
-    const filepath = "./test-data/wildfires-26910";
+    const filepath = "./test-output/wildfires-26910";
     writePNGSync({ h: height, w: width, data, filepath });
     console.log("wrote:", filepath);
   }
   eq(data.length, 3); // check band count
 });
 
+const tileCache = {};
+
 const readTile = async ({ x, y, z, filename }) => {
-  const filepath = path.resolve(__dirname, "./test-data", filename);
-  const bbox4326 = tilebelt.tileToBBOX([x, y, z]);
-  const bbox3857 = reprojectBoundingBox({ bbox: bbox4326, from: 4326, to: 3857 });
-  const geotiff = await GeoTIFF.fromFile(filepath);
-  const { data, read_bbox, height, width, srs_of_geotiff } = await readBoundingBox({
-    bbox: bbox3857,
-    geotiff,
-    srs: 3857
-  });
-  return {
-    data,
-    depth: data.length, // num bands
-    geotiff_srs: srs_of_geotiff,
-    height,
-    layout: "[band][row,column]",
-    tile_bbox: bbox3857,
-    geotiff_bbox: read_bbox,
-    width
-  };
+  const key = JSON.stringify({ x, y, z, filename });
+  if (!tileCache[key]) {
+    const filepath = path.resolve(__dirname, "./test-data", filename);
+    const bbox4326 = tilebelt.tileToBBOX([x, y, z]);
+    const bbox3857 = reprojectBoundingBox({ bbox: bbox4326, from: 4326, to: 3857 });
+    const geotiff = await GeoTIFF.fromFile(filepath);
+    const { data, read_bbox, height, width, srs_of_geotiff } = await readBoundingBox({
+      bbox: bbox3857,
+      geotiff,
+      srs: 3857
+    });
+    tileCache[key] = {
+      data,
+      depth: data.length, // num bands
+      geotiff_srs: srs_of_geotiff,
+      height,
+      layout: "[band][row,column]",
+      tile_bbox: bbox3857,
+      geotiff_bbox: read_bbox,
+      width
+    };
+  }
+  return tileCache[key];
 };
 
 const runTileTests = async ({
@@ -472,7 +478,7 @@ test("edge case: web mercator tile from UTM", async ({ eq }) => {
     const warped = geowarp(options);
 
     if (process.env.WRITE) {
-      writePNGSync({ h: out_height, w: out_width, data: warped.data, filepath: "./test-data/edge-case-utm-" + method });
+      writePNGSync({ h: out_height, w: out_width, data: warped.data, filepath: "./test-output/edge-case-utm-" + method });
     }
   });
 });
@@ -541,4 +547,42 @@ test("OpenLandMap", async ({ eq }) => {
     const value = warped.data[0][0][out_width - 1];
     eq(value !== null, true);
   });
+});
+
+test("rescale", async ({ eq }) => {
+  const filename = "gadas.tif";
+  const filepath = path.resolve(__dirname, "./test-data", filename);
+  const geotiff = await GeoTIFF.fromFile(filepath);
+  const image = await geotiff.getImage(0);
+  const rasters = await image.readRasters();
+  const in_bbox = image.getBoundingBox();
+  const height = image.getHeight();
+  const width = image.getWidth();
+  // ProjectedCSTypeGeoKey says 32767, but PCSCitationGeoKey says ESRI PE String = 3857.esriwkt
+  const in_srs = 3857;
+  const out_srs = 3857;
+  const out_height = Math.round(height / 5);
+  const out_width = Math.round(width / 5);
+
+  const { data } = geowarp({
+    debug_level: 0,
+    in_bbox,
+    in_data: rasters,
+    in_layout: "[band][row,column]",
+    in_srs,
+    in_height: height,
+    in_width: width,
+    out_array_types: ["Array", "Array", "Array"],
+    out_height,
+    out_width,
+    out_layout: "[band][row][column]",
+    out_srs,
+    method: "median"
+  });
+
+  if (process.env.WRITE) {
+    writePNGSync({ h: out_height, w: out_width, data, filepath: `./test-output/gadas-rescale` });
+  }
+  eq(data.length, 4); // check band count
+  eq(data[0][0].constructor.name, "Array");
 });

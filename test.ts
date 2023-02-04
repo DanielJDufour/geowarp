@@ -70,7 +70,7 @@ const writePNGSync = ({ h, w, data, filepath }: { h: number; w: number; data: an
     });
 
     if (process.env.WRITE) {
-      writePNGSync({ h: height, w: width, data, filepath: `./test-data/gadas-cutline-` + method });
+      writePNGSync({ h: height, w: width, data, filepath: `./test-output/gadas-cutline-` + method });
     }
     eq(data.length, 4); // check band count
     eq((data as any)[0][0].constructor.name, "Uint8ClampedArray");
@@ -111,7 +111,7 @@ test("reproject without clipping", async ({ eq }) => {
   });
 
   if (process.env.WRITE) {
-    writePNGSync({ h: height, w: width, data, filepath: `./test-data/reproject-without-clipping.tif` });
+    writePNGSync({ h: height, w: width, data, filepath: `./test-output/reproject-without-clipping.tif` });
   }
   eq(data.length, 3); // check band count
 });
@@ -159,7 +159,7 @@ test("bug: reprojecting to EPSG:26910", async ({ eq }) => {
   });
 
   if (process.env.WRITE) {
-    const filepath = "./test-data/wildfires-26910";
+    const filepath = "./test-output/wildfires-26910";
     writePNGSync({ h: height, w: width, data, filepath });
     console.log("wrote:", filepath);
   }
@@ -298,7 +298,7 @@ const runTileTests = async ({
                 }
 
                 if (process.env.WRITE) {
-                  writePNGSync({ h: size, w: size, data: result.data, filepath: `./test-data/${testName}` });
+                  writePNGSync({ h: size, w: size, data: result.data, filepath: `./test-output/${testName}` });
                 }
               });
             });

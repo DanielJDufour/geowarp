@@ -9,7 +9,7 @@
     "geowarp.d.ts"
   ],
   "scripts": {
-    "clean": "rm -fr ./test-data/*.png",
+    "clean": "rm -fr ./test-data/*.png && rm -fr ./test-output/*.png",
     "format": "npx prettier --arrow-parens=avoid --print-width=160 --trailing-comma=none --write *.js *.ts",
     "lint": "npx eslint *.js",
     "perf": "TEST_NAME=*perf* LOG_SKIP=false TIME=true node test.js",
@@ -57,6 +57,7 @@
     "write-image": "^0.2.0"
   },
   "dependencies": {
+    "bbox-fns": "^0.2.0",
     "dufour-peyton-intersection": "^0.1.2",
     "fast-max": "^0.4.0",
     "fast-min": "^0.3.0",
