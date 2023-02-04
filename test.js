@@ -581,7 +581,7 @@ test("rescale", async ({ eq }) => {
   });
 
   if (process.env.WRITE) {
-    writePNGSync({ h: out_height, w: out_width, data, filepath: `./test-output/gadas-rescale` });
+    writePNGSync({ h: out_height, w: out_width, data, filepath: "./test-output/gadas-rescale" });
   }
   eq(data.length, 4); // check band count
   eq(data[0][0].constructor.name, "Array");

@@ -14,7 +14,7 @@ const xdim = require("xdim");
 
 const clamp = (n, min, max) => (n < min ? min : n > max ? max : n);
 
-const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 const uniq = arr => Array.from(new Set(arr)).sort((a, b) => b - a);
 
@@ -413,7 +413,7 @@ const geowarp = function geowarp({
   }
 
   const should_skip =
-    skip_no_data_strategy === "any" ? px => px.includes(out_no_data) : skip_no_data_strategy === "all" ? px.every(n => n === out_no_data) : () => false;
+    skip_no_data_strategy === "any" ? px => px.includes(out_no_data) : skip_no_data_strategy === "all" ? px => px.every(n => n === out_no_data) : () => false;
 
   if (method === "vectorize") {
     // reproject bounding box of output (e.g. a tile) into the spatial reference system of the input data
