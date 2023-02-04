@@ -350,12 +350,12 @@ const runTileTests = async ({
   }
 ].forEach(runTileTests);
 
-["bilinear", "near", "min", "max", "median"].forEach(method => {
+["bilinear", "near", "min", "max", "median", "vectorize"].forEach(method => {
   test(method + " performance", async ({ eq }) => {
     const info = await readTile({ x: 3853, y: 6815, z: 14, filename: "SkySat_Freeport_s03_20170831T162740Z3.tif" });
 
     const { forward, inverse } = proj4("EPSG:" + info.geotiff_srs, "EPSG:" + 3857);
-    geowarp({
+    const result = geowarp({
       debug_level: 0,
       forward,
       inverse,
@@ -376,6 +376,10 @@ const runTileTests = async ({
       method,
       round: true
     });
+
+    if (process.env.WRITE) {
+      writePNGSync({ h: 256, w: 256, data: result.data, filepath: "./test-output/" + method + "-performance.png" });
+    }
   });
 });
 
