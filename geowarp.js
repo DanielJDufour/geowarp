@@ -420,8 +420,10 @@ const geowarp = function geowarp({
       : () => false;
 
   if (method === "vectorize") {
+    const [cfwd, clear_forward_cache] = cacheFunction(fwd);
+
     // reproject bounding box of output (e.g. a tile) into the spatial reference system of the input data
-    out_bbox_in_srs ??= reprojectBoundingBox({ bbox: out_bbox, reproject: inverse });
+    out_bbox_in_srs ??= same_srs ? out_bbox : reprojectBoundingBox({ bbox: out_bbox, reproject: inverse });
     let [left, bottom, right, top] = out_bbox_in_srs;
 
     out_pixel_height_in_srs ??= (top - bottom) / out_height;
@@ -480,7 +482,7 @@ const geowarp = function geowarp({
             const rect = polygon(pixel_bbox);
 
             // reproject pixel rectangle from input to output srs
-            const pixel_geometry_in_out_srs = reprojectGeoJSON(rect, { reproject: fwd });
+            const pixel_geometry_in_out_srs = same_srs ? rect : reprojectGeoJSON(rect, { reproject: cfwd });
 
             const intersect_options = {
               debug: false,
@@ -576,8 +578,8 @@ const geowarp = function geowarp({
           // the weighting when values on each side are the same
           const leftWeight = right - xInRasterPixels;
           const rightWeight = xInRasterPixels - left;
-          const topWeight = bottom - yInRasterPixels;
-          const bottomWeight = yInRasterPixels - top;
+          const topWeight = top === bottom ? 0.5 : bottom - yInRasterPixels;
+          const bottomWeight = top === bottom ? 0.5 : yInRasterPixels - top;
 
           const leftInvalid = left < 0 || left >= in_width;
           const rightInvalid = right < 0 || right >= in_width;
