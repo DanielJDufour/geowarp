@@ -570,6 +570,10 @@ const geowarp = function geowarp({
           const top = Math.floor(yInRasterPixels);
           const bottom = Math.ceil(yInRasterPixels);
 
+          // if xInRaster pixels is an integer,
+          // then leftWeight and rightWeight will equal zero
+          // that's not a problem though, because we ignore
+          // the weighting when values on each side are the same
           const leftWeight = right - xInRasterPixels;
           const rightWeight = xInRasterPixels - left;
           const topWeight = bottom - yInRasterPixels;
@@ -601,6 +605,9 @@ const geowarp = function geowarp({
               topValue = upperRightValue;
             } else if (upperRightValue === undefined || upperRightValue === in_no_data) {
               topValue = upperLeftValue;
+            } else if (upperLeftValue === upperRightValue) {
+              // because the upper-left and upper-right values are the same, no weighting is necessary
+              topValue = upperLeftValue;
             } else {
               topValue = leftWeight * upperLeftValue + rightWeight * upperRightValue;
             }
@@ -612,13 +619,16 @@ const geowarp = function geowarp({
               bottomValue = lowerRightValue;
             } else if (lowerRightValue === undefined || lowerRightValue === in_no_data) {
               bottomValue = lowerLeftValue;
+            } else if (lowerLeftValue === lowerRightValue) {
+              // because the lower-left and lower-right values are the same, no weighting is necessary
+              bottomValue = lowerLeftValue;
             } else {
               bottomValue = leftWeight * lowerLeftValue + rightWeight * lowerRightValue;
             }
 
             let value;
             if (topValue === undefined && bottomValue === undefined) {
-              value = out_no_data;
+              value = in_no_data;
             } else if (topValue === undefined) {
               value = bottomValue;
             } else if (bottomValue === undefined) {
