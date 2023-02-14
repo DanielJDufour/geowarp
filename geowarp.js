@@ -522,12 +522,12 @@ const geowarp = function geowarp({
           const pt_out_srs = [x, y];
           const pt_in_srs = same_srs ? pt_out_srs : inv(pt_out_srs);
           const [x_in_srs, y_in_srs] = pt_in_srs;
-          const xInRasterPixels = Math.floor((x_in_srs - in_xmin) / in_pixel_width);
-          const yInRasterPixels = Math.floor((in_ymax - y_in_srs) / in_pixel_height);
+          const x_in_raster_pixels = Math.floor((x_in_srs - in_xmin) / in_pixel_width);
+          const y_in_raster_pixels = Math.floor((in_ymax - y_in_srs) / in_pixel_height);
 
           let raw_values = [];
 
-          if (xInRasterPixels < 0 || yInRasterPixels < 0 || xInRasterPixels >= in_width || yInRasterPixels >= in_height) {
+          if (x_in_raster_pixels < 0 || y_in_raster_pixels < 0 || x_in_raster_pixels >= in_width || y_in_raster_pixels >= in_height) {
             // through reprojection, we can sometimes find ourselves just across the edge
             raw_values = new Array(read_bands.length).fill(in_no_data);
           } else {
@@ -536,8 +536,8 @@ const geowarp = function geowarp({
                 select({
                   point: {
                     band,
-                    row: yInRasterPixels,
-                    column: xInRasterPixels
+                    row: y_in_raster_pixels,
+                    column: x_in_raster_pixels
                   }
                 }).value
             );
@@ -545,7 +545,7 @@ const geowarp = function geowarp({
 
           if (should_skip(raw_values)) continue;
           const pixel = process({ pixel: raw_values });
-          insert({ row: r, column: c, pixel, raw: raw_values, pt_in_srs, pt_out_srs });
+          insert({ row: r, column: c, pixel, raw: raw_values, pt_in_srs, pt_out_srs, x_in_raster_pixels, y_in_raster_pixels });
         }
       }
     }
