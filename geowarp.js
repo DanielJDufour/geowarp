@@ -420,7 +420,7 @@ const geowarp = function geowarp({
       : () => false;
 
   if (method === "vectorize") {
-    const [cfwd, clear_forward_cache] = cacheFunction(fwd);
+    // const [cfwd, clear_forward_cache] = cacheFunction(fwd);
 
     // reproject bounding box of output (e.g. a tile) into the spatial reference system of the input data
     out_bbox_in_srs ??= same_srs ? out_bbox : reprojectBoundingBox({ bbox: out_bbox, reproject: inverse });
@@ -482,7 +482,7 @@ const geowarp = function geowarp({
             const rect = polygon(pixel_bbox);
 
             // reproject pixel rectangle from input to output srs
-            const pixel_geometry_in_out_srs = same_srs ? rect : reprojectGeoJSON(rect, { reproject: cfwd });
+            const pixel_geometry_in_out_srs = same_srs ? rect : reprojectGeoJSON(rect, { reproject: fwd });
 
             const intersect_options = {
               debug: false,
