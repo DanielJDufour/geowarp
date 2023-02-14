@@ -520,7 +520,8 @@ const geowarp = function geowarp({
         for (let c = cstart; c <= cend; c++) {
           const x = out_xmin + c * out_pixel_width + half_out_pixel_width;
           const pt_out_srs = [x, y];
-          const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inv(pt_out_srs);
+          const pt_in_srs = same_srs ? pt_out_srs : inv(pt_out_srs);
+          const [x_in_srs, y_in_srs] = pt_in_srs;
           const xInRasterPixels = Math.floor((x_in_srs - in_xmin) / in_pixel_width);
           const yInRasterPixels = Math.floor((in_ymax - y_in_srs) / in_pixel_height);
 
@@ -544,7 +545,7 @@ const geowarp = function geowarp({
 
           if (should_skip(raw_values)) continue;
           const pixel = process({ pixel: raw_values });
-          insert({ row: r, column: c, pixel, raw: raw_values });
+          insert({ row: r, column: c, pixel, raw: raw_values, pt_in_srs, pt_out_srs });
         }
       }
     }
