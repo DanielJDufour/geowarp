@@ -46,6 +46,7 @@
   "homepage": "https://github.com/DanielJDufour/geowarp#readme",
   "devDependencies": {
     "@mapbox/tilebelt": "^1.0.2",
+    "@types/node": "^18.14.1",
     "fast-counter": "^0.1.0",
     "find-and-read": "^1.2.0",
     "flug": "^2.4.0",
