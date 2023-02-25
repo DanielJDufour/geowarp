@@ -83,10 +83,10 @@ const mode = (nums, no_data) => {
 };
 
 // returns [functionCached, clearCache]
-const cacheFunction = (f, str = it => it.toString()) => {
-  let cache = {};
-  return [xy => (cache[str(xy)] ??= f(xy)), () => (cache = {})];
-};
+// const cacheFunction = (f, str = it => it.toString()) => {
+//   let cache = {};
+//   return [xy => (cache[str(xy)] ??= f(xy)), () => (cache = {})];
+// };
 
 const geowarp = function geowarp({
   debug_level = 0,
@@ -113,6 +113,7 @@ const geowarp = function geowarp({
   out_width = 256,
   out_height = 256,
   out_no_data = null,
+  // out_no_data_strategy = "keep",
   method = "median",
   read_bands = undefined, // which bands to read, used in conjunction with expr
   row_start = 0, // which sample row to start writing with
@@ -206,6 +207,7 @@ const geowarp = function geowarp({
   out_bands ??= read_bands;
 
   if (round && typeof out_no_data === "number") out_no_data = Math.round(out_no_data);
+  // if (out_no_data === null && out_no_data_strategy === "keep") out_no_data = in_no_data;
 
   // processing step after we have read the raw pixel values
   let process;
@@ -441,7 +443,7 @@ const geowarp = function geowarp({
     if (inverse_turbocharged) console.log("[geowarp] turbocharged inverse");
   }
   const fwd = forward_turbocharged?.reproject || forward;
-  let inv = inverse_turbocharged?.reproject || inverse;
+  const inv = inverse_turbocharged?.reproject || inverse;
   // const [invCached, clearInvCache] = cacheFunction(inv);
 
   const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });

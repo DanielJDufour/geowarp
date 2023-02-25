@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "clean": "rm -fr ./test-data/*.png && rm -fr ./test-output/*.png",
-    "format": "npx prettier --arrow-parens=avoid --print-width=160 --trailing-comma=none --write *.js *.ts",
+    "format": "npm run lint -- --fix && npx prettier --arrow-parens=avoid --print-width=160 --trailing-comma=none --write *.js *.ts",
     "lint": "npx eslint *.js",
     "perf": "TEST_NAME=*perf* LOG_SKIP=false TIME=true node test.js",
     "prepublish": "npm run lint",

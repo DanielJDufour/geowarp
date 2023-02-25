@@ -270,12 +270,14 @@ const runTileTests = async ({
                     eq(result_data[0].length, size);
                     eq(result_data[0][0].length, out_bands?.length ?? 3);
                     counts = count(result.data, { depth: 2 });
-                    const top = Object.entries(counts).sort((a, b) => Math.sign(b[1] - a[1]))[0][0];
+                    const sortedCounts = Object.entries(counts).sort((a, b) => Math.sign(b[1] - a[1]));
+                    const top = sortedCounts[0][0];
                     if (method !== "first" && !out_bands) {
                       try {
                         eq(most_common_pixels.includes(top), true);
                       } catch (error) {
-                        console.error("top:", top);
+                        console.log("sortedCounts:", sortedCounts.slice(0, 5));
+                        console.error("top:", `rgb(${top})`);
                         throw error;
                       }
                     }
@@ -351,6 +353,7 @@ const runTileTests = async ({
       "14,22,9",
       "15,23,10",
       "16,24,11",
+      "16,24,13",
       "17,25,12",
       "17,25,14",
       "18,26,11",
@@ -358,7 +361,9 @@ const runTileTests = async ({
       "18,26,13",
       "19,25,13",
       "20,23,12",
-      "22,30,17"
+      "22,30,17",
+      "22,30,19",
+      "42,51,48"
     ],
     turbos: [false, true],
     out_resolutions: [

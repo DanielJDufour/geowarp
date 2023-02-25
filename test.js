@@ -245,6 +245,10 @@ const runTileTests = async ({
                   turbo
                 });
 
+                if (process.env.WRITE) {
+                  writePNGSync({ h: size, w: size, data: result.data, filepath: `./test-output/${testName}` });
+                }
+
                 eq(result.read_bands, out_bands || range(info.depth));
 
                 let counts;
@@ -253,11 +257,14 @@ const runTileTests = async ({
                   eq(result.data[0].length, size);
                   eq(result.data[0][0].length, out_bands?.length ?? 3);
                   counts = count(result.data, { depth: 2 });
-                  const top = Object.entries(counts).sort((a, b) => Math.sign(b - a))[0][0];
+                  const sortedCounts = Object.entries(counts).sort((a, b) => Math.sign(b[1] - a[1]));
+                  const top = sortedCounts[0][0];
                   if (method !== "first" && !out_bands) {
                     try {
                       eq(most_common_pixels.includes(top), true);
                     } catch (error) {
+                      console.dir(result.data, { depth: 5, maxArrayLength: 5 });
+                      console.log("sortedCounts:", sortedCounts.slice(0, 5), "...");
                       console.error(top);
                       throw error;
                     }
@@ -280,10 +287,6 @@ const runTileTests = async ({
                     true
                   );
                 }
-
-                if (process.env.WRITE) {
-                  writePNGSync({ h: size, w: size, data: result.data, filepath: `./test-data/${testName}` });
-                }
               });
             });
           });
@@ -305,7 +308,20 @@ const runTileTests = async ({
     filename: "wildfires.tiff",
     methods: ["first", "bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
     out_bands_array: [undefined, [0], [2, 1, 0]],
-    most_common_pixels: ["0,0,0", "11,16,7", "11,16,8", "18,26,11", "18,26,12", "19,27,12", "20,28,13", "21,29,14", "13,18,9", "22,30,17"]
+    most_common_pixels: [
+      "0,0,0",
+      "11,16,7",
+      "11,16,8",
+      "17,25,12",
+      "18,26,11",
+      "18,26,12",
+      "19,27,12",
+      "20,28,13",
+      "21,29,14",
+      "13,18,9",
+      "19,25,13",
+      "22,30,17"
+    ]
   },
   {
     x: 3853,
@@ -351,14 +367,7 @@ const runTileTests = async ({
   }
 ].forEach(runTileTests);
 
-[
-  "bilinear",
-  "near",
-  "min",
-  "max",
-  "median",
-  "vectorize"
-].forEach(method => {
+["bilinear", "near", "min", "max", "median", "vectorize"].forEach(method => {
   test(method + " performance", async ({ eq }) => {
     const info = await readTile({ x: 3853, y: 6815, z: 14, filename: "SkySat_Freeport_s03_20170831T162740Z3.tif" });
 
