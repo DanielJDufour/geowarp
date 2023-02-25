@@ -14,7 +14,7 @@
     "lint": "npx eslint *.js",
     "perf": "TEST_NAME=*perf* LOG_SKIP=false TIME=true node test.js",
     "prepublish": "npm run lint",
-    "setup": "cd test-data && ./setup.sh",
+    "setup": "cd ./test-data && ./setup.sh",
     "test": "npm run clean && npm run test:js && npm run test:ts",
     "test:js": "LOG_SKIP=false TIME=true node test.js",
     "test:ts": "LOG_SKIP=false TIME=true npx ts-node ./test.ts",
