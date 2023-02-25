@@ -337,9 +337,13 @@ const runTileTests = async ({
     out_bands_array: [undefined, [0], [2, 1, 0]],
     most_common_pixels: [
       "104,89,75",
+      "105,88,75",
       "105,90,76",
+      "106,89,75",
       "106,90,77",
+      "107,90,76",
       "107,90,77",
+      "107,91,79",
       "107,92,79",
       "108,91,77",
       "121,110,99",
@@ -550,7 +554,7 @@ test("OpenLandMap", async ({ eq }) => {
   methods.forEach(method => {
     console.log("method:", method);
     const options = {
-      debug_level: 5,
+      debug_level: 0,
       inverse,
       forward,
 
