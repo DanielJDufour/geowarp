@@ -49,7 +49,7 @@
     "@types/node": "^18.14.1",
     "fast-counter": "^0.1.0",
     "find-and-read": "^1.2.0",
-    "flug": "^2.4.0",
+    "flug": "^2.5.0",
     "geotiff": "1.0.9",
     "geotiff-palette": "^0.1.0",
     "geotiff-read-bbox": "^1.2.0",
