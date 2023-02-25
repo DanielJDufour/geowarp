@@ -336,6 +336,11 @@ const runTileTests = async ({
     methods: ["first", "bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
     out_bands_array: [undefined, [0], [2, 1, 0]],
     most_common_pixels: [
+      "104,89,75",
+      "105,90,76",
+      "106,90,77",
+      "107,90,77",
+      "108,91,77",
       "121,110,99",
       "128,124,122",
       "132,127,125",
