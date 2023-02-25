@@ -33,6 +33,7 @@ export default function geowarp(options: {
   out_data?: data;
   out_layout?: string | undefined;
   out_no_data?: number | null | undefined;
+  out_resolution?: number[] | [number, number] | Readonly<number[]> | Readonly<[number, number]>;
   out_srs?: srs | undefined;
   out_pixel_depth?: number | undefined;
   out_height: number;

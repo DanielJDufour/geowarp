@@ -200,7 +200,8 @@ const runTileTests = async ({
   out_no_data,
   sizes = [64, 256, 512],
   most_common_pixels,
-  turbos = [false, true]
+  turbos = [false, true],
+  out_resolutions = [[1, 1]]
 }: {
   x: number;
   y: number;
@@ -214,92 +215,93 @@ const runTileTests = async ({
   sizes: number[];
   most_common_pixels: string[];
   turbos?: boolean[];
+  out_resolutions?: Readonly<Array<Readonly<[number, number]>>>;
 }) => {
   try {
-    let readTilePromise: ReturnType<typeof readTile> | undefined;
+    const info = await readTile({ x, y, z, filename });
     sizes.forEach((size: number) => {
       methods.forEach((method: string) => {
         out_layouts.forEach((out_layout: string) => {
           out_bands_array.forEach((out_bands: number[] | undefined) => {
             turbos.forEach((turbo: boolean) => {
-              const testName = `${filename.split(".")[0]}-${z}-${x}-${y}-${method}-${size}-${out_layout}-${out_bands}${turbo ? "-turbo" : ""}`;
-              test(testName, async ({ eq }) => {
-                readTilePromise ??= readTile({ x, y, z, filename });
+              out_resolutions.forEach(out_resolution => {
+                const testName = `${filename.split(".")[0]}-${z}-${x}-${y}-${method}-${size}-${out_layout}-${out_bands}-${out_resolution[0]}${
+                  turbo ? "-turbo" : ""
+                }`;
+                test(testName, async ({ eq }) => {
+                  const in_srs = info.geotiff_srs;
 
-                const info = await readTilePromise;
-                // console.log("info got", info);
+                  const { inverse, forward } = proj4("EPSG:" + in_srs, "EPSG:" + 3857);
 
-                const in_srs = info.geotiff_srs;
+                  const result = geowarp({
+                    debug_level,
+                    forward,
+                    inverse,
 
-                const { inverse, forward } = proj4("EPSG:" + in_srs, "EPSG:" + 3857);
+                    // regarding input data
+                    in_data: info.data,
+                    in_bbox: info.geotiff_bbox,
+                    in_layout: info.layout,
+                    in_srs: info.geotiff_srs,
+                    in_width: info.width,
+                    in_height: info.height,
 
-                const result = geowarp({
-                  debug_level,
-                  forward,
-                  inverse,
+                    // regarding location to paint
+                    out_bands,
+                    out_bbox: info.tile_bbox,
+                    out_layout,
+                    out_no_data,
+                    out_srs: 3857,
+                    out_height: size,
+                    out_resolution,
+                    out_width: size,
+                    method: method === "first" ? ({ values }) => values[0] : method,
+                    round: true,
+                    turbo
+                  });
 
-                  // regarding input data
-                  in_data: info.data,
-                  in_bbox: info.geotiff_bbox,
-                  in_layout: info.layout,
-                  in_srs: info.geotiff_srs,
-                  in_width: info.width,
-                  in_height: info.height,
+                  eq(result.read_bands, out_bands || range(info.depth));
 
-                  // regarding location to paint
-                  out_bands,
-                  out_bbox: info.tile_bbox,
-                  out_layout,
-                  out_no_data,
-                  out_srs: 3857,
-                  out_height: size,
-                  out_width: size,
-                  method: method === "first" ? ({ values }) => values[0] : method,
-                  round: true,
-                  turbo
-                });
+                  const result_data = result.data as any;
 
-                eq(result.read_bands, out_bands || range(info.depth));
-
-                const result_data = result.data as any;
-
-                let counts: { [key: string]: number } | undefined;
-                if (out_layout === "[row][column][band]") {
-                  eq(result_data.length, size);
-                  eq(result_data[0].length, size);
-                  eq(result_data[0][0].length, out_bands?.length ?? 3);
-                  counts = count(result.data, { depth: 2 });
-                  const top = Object.entries(counts).sort((a, b) => Math.sign(b[1] - a[1]))[0][0];
-                  if (method !== "first" && !out_bands) {
-                    try {
-                      eq(most_common_pixels.includes(top), true);
-                    } catch (error) {
-                      console.error("top:", top);
-                      throw error;
+                  let counts: { [key: string]: number } | undefined;
+                  if (out_layout === "[row][column][band]") {
+                    eq(result_data.length, size);
+                    eq(result_data[0].length, size);
+                    eq(result_data[0][0].length, out_bands?.length ?? 3);
+                    counts = count(result.data, { depth: 2 });
+                    const top = Object.entries(counts).sort((a, b) => Math.sign(b[1] - a[1]))[0][0];
+                    if (method !== "first" && !out_bands) {
+                      try {
+                        eq(most_common_pixels.includes(top), true);
+                      } catch (error) {
+                        console.error("top:", top);
+                        throw error;
+                      }
                     }
+                  } else if (out_layout === "[band][row][column]") {
+                    eq(result_data.length, out_bands?.length ?? 3);
+                    eq(result_data[0].length, size);
+                    eq(result_data[0][0].length, size);
+                  } else if (out_layout === "[band][row,column]") {
+                    eq(result_data.length, out_bands?.length ?? 3);
+                    eq(
+                      result_data.every((b: number[]) => b.length === size * size),
+                      true
+                    );
+                    counts = count(result_data, { depth: 1 });
+                  } else if (out_layout === "[row,column,band]") {
+                    eq(result_data.length, 3 * size * size);
+                    eq(
+                      result_data.every((n: number) => typeof n === "number"),
+                      true
+                    );
                   }
-                } else if (out_layout === "[band][row][column]") {
-                  eq(result_data.length, out_bands?.length ?? 3);
-                  eq(result_data[0].length, size);
-                  eq(result_data[0][0].length, size);
-                } else if (out_layout === "[band][row,column]") {
-                  eq(result_data.length, out_bands?.length ?? 3);
-                  eq(
-                    result_data.every((b: number[]) => b.length === size * size),
-                    true
-                  );
-                  counts = count(result_data, { depth: 1 });
-                } else if (out_layout === "[row,column,band]") {
-                  eq(result_data.length, 3 * size * size);
-                  eq(
-                    result_data.every((n: number) => typeof n === "number"),
-                    true
-                  );
-                }
 
-                if (process.env.WRITE) {
-                  writePNGSync({ h: size, w: size, data: result.data, filepath: `./test-output/${testName}` });
-                }
+                  if (process.env.WRITE) {
+                    writePNGSync({ h: size, w: size, data: result.data, filepath: `./test-output/${testName}` });
+                  }
+                });
               });
             });
           });
@@ -325,7 +327,12 @@ const runTileTests = async ({
     out_bands_array: [undefined],
     out_no_data: 0,
     most_common_pixels: ["0,0,0", "11,16,8", "16,24,11", "18,26,11", "18,26,12", "13,18,9", "22,30,17", "48,59,61", "218,33,33"],
-    turbos: [false, true]
+    turbos: [false, true],
+    out_resolutions: [
+      [1, 1],
+      [0.5, 0.5],
+      [0.25, 0.25]
+    ] as const
   },
   {
     // note: the left edge of the tile is actually west of the left edge of the geotiff,
@@ -337,8 +344,29 @@ const runTileTests = async ({
     filename: "wildfires.tiff",
     methods: ["near-vectorize", "first", "bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
     out_bands_array: [undefined, [0], [2, 1, 0]],
-    most_common_pixels: ["0,0,0", "11,16,8", "13,18,9", "16,24,11", "17,25,14", "18,26,11", "18,26,12", "19,25,13", "22,30,17"],
-    turbos: [false, true]
+    most_common_pixels: [
+      "0,0,0",
+      "11,16,8",
+      "13,18,9",
+      "14,22,9",
+      "15,23,10",
+      "16,24,11",
+      "17,25,12",
+      "17,25,14",
+      "18,26,11",
+      "18,26,12",
+      "18,26,13",
+      "19,25,13",
+      "20,23,12",
+      "22,30,17"
+    ],
+    turbos: [false, true],
+    out_resolutions: [
+      [1, 1],
+      [0.5, 0.5],
+      [0.25, 0.25],
+      [0.05, 0.05]
+    ] as const
   },
   {
     x: 3853,
@@ -354,6 +382,7 @@ const runTileTests = async ({
       "106,89,75",
       "106,90,77",
       "107,90,76",
+      "107,90,77",
       "107,91,79",
       "107,92,79",
       "121,110,99",
@@ -385,7 +414,12 @@ const runTileTests = async ({
       "208,205,204",
       "208,204,204"
     ],
-    turbos: [false, true]
+    turbos: [false, true],
+    out_resolutions: [
+      [1, 1],
+      [0.5, 0.5],
+      [0.25, 0.25]
+    ] as const
   }
 ].forEach(runTileTests);
 

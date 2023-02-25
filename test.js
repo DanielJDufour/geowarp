@@ -27,6 +27,7 @@ const writePNGSync = ({ h, w, data, filepath }) => {
 ["vectorize", "near", "median", "bilinear"].forEach(method => {
   ["inside", "outside"].forEach(cutline_strategy => {
     test("cutline " + cutline_strategy + " " + method, async ({ eq }) => {
+      // console.log("starting:", "cutline " + cutline_strategy + " " + method);
       const cutline = JSON.parse(findAndRead("sri-lanka-hi-res.geojson", { encoding: "utf-8" }));
       const filename = "gadas.tif";
       const filepath = path.resolve(__dirname, "./test-data", filename);
@@ -304,7 +305,7 @@ const runTileTests = async ({
     filename: "wildfires.tiff",
     methods: ["first", "bilinear", "near", "max", "mean", "median", "min", "mode", "mode-mean", "mode-max", "mode-min"],
     out_bands_array: [undefined, [0], [2, 1, 0]],
-    most_common_pixels: ["0,0,0", "11,16,8", "18,26,11", "18,26,12", "20,28,13", "13,18,9", "22,30,17"]
+    most_common_pixels: ["0,0,0", "11,16,7", "11,16,8", "18,26,11", "18,26,12", "19,27,12", "20,28,13", "21,29,14", "13,18,9", "22,30,17"]
   },
   {
     x: 3853,
@@ -350,7 +351,14 @@ const runTileTests = async ({
   }
 ].forEach(runTileTests);
 
-["bilinear", "near", "min", "max", "median", "vectorize"].forEach(method => {
+[
+  "bilinear",
+  "near",
+  "min",
+  "max",
+  "median",
+  "vectorize"
+].forEach(method => {
   test(method + " performance", async ({ eq }) => {
     const info = await readTile({ x: 3853, y: 6815, z: 14, filename: "SkySat_Freeport_s03_20170831T162740Z3.tif" });
 

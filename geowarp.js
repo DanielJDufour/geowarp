@@ -12,9 +12,23 @@ const { turbocharge } = require("proj-turbo");
 const segflip = require("segflip");
 const xdim = require("xdim");
 
+// l = console.log;
+
 const clamp = (n, min, max) => (n < min ? min : n > max ? max : n);
 
-// const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const scaleInteger = (n, r) => {
+  const n2 = Math.round(n * r);
+  return [n2, n2 / n, n / n2];
+};
+
+// result as [xmin, ymin, xmax, ymax]
+// for (let column = xmin; column < xmax; column++)
+const scalePixel = ([column, row], [x_scale, y_scale]) => [
+  Math.round(column * x_scale),
+  Math.round(row * y_scale),
+  Math.round((column + 1) * x_scale),
+  Math.round((row + 1) * y_scale)
+];
 
 const uniq = arr => Array.from(new Set(arr)).sort((a, b) => b - a);
 
@@ -68,6 +82,12 @@ const mode = (nums, no_data) => {
   return items.filter(it => it.count === count).map(it => it.n);
 };
 
+// returns [functionCached, clearCache]
+const cacheFunction = (f, str = it => it.toString()) => {
+  let cache = {};
+  return [xy => (cache[str(xy)] ??= f(xy)), () => (cache = {})];
+};
+
 const geowarp = function geowarp({
   debug_level = 0,
   in_data,
@@ -88,14 +108,15 @@ const geowarp = function geowarp({
   out_pixel_width, // optional, automatically calculated from out_bbox
   out_bbox = null,
   out_layout,
+  out_resolution = [1, 1],
   out_srs,
   out_width = 256,
   out_height = 256,
   out_no_data = null,
   method = "median",
   read_bands = undefined, // which bands to read, used in conjunction with expr
-  row_start = 0, // which row in output data to start writing at
-  row_end,
+  row_start = 0, // which sample row to start writing with
+  row_end, // last sample row to write
   expr = undefined, // band expression function
   round = false, // whether to round output
   theoretical_min, // minimum theoretical value (e.g., 0 for unsigned integer arrays)
@@ -108,11 +129,21 @@ const geowarp = function geowarp({
   cutline_forward, // function to reproject [x, y] point from cutline_srs to out_srs
   cutline_strategy = "outside", // cut out the pixels inside or outside the cutline
   turbo = false, // enable experimental turbocharging via proj-turbo
-  insert, // over-ride function that inserts data into output multi-dimensional array
+  insert_pixel, // over-ride function that inserts data into output multi-dimensional array
+  insert_sample, // over-ride function that inserts each sample into the output multi-dimensional array (calls insert)
   skip_no_data_strategy // skip processing pixels if "any" or "all" values are "no data"
+  // cache_functions // this really helps if functions are asynchronous and require posting to a web worker
+  // async // run geowarp in async mode
 }) {
   if (debug_level >= 1) console.log("[geowarp] starting");
   const start_time = debug_level >= 1 ? performance.now() : 0;
+
+  const [out_height_in_samples, y_resolution, y_scale] = scaleInteger(out_height, out_resolution[1]);
+  const [out_width_in_samples, x_resolution, x_scale] = scaleInteger(out_width, out_resolution[0]);
+
+  if (debug_level >= 1) console.log("[geowarp] scaled size:", [out_width_in_samples, out_height_in_samples]);
+  if (debug_level >= 1) console.log("[geowarp] resolution:", [x_resolution, y_resolution]);
+  if (debug_level >= 1) console.log("[geowarp] scale:", [x_scale, y_scale]);
 
   const same_srs = in_srs === out_srs;
   if (debug_level >= 1) console.log("[geowarp] input and output srs are the same:", same_srs);
@@ -121,6 +152,9 @@ const geowarp = function geowarp({
 
   // support for deprecated alias of inverse
   inverse ??= arguments[0].reproject;
+
+  // support for deprecated insert
+  insert_pixel ??= arguments[0].insert;
 
   let in_bbox_out_srs, out_bbox_in_srs, intersect_bbox_in_srs, intersect_bbox_out_srs;
 
@@ -203,6 +237,10 @@ const geowarp = function geowarp({
     }
   }
 
+  // currently unused
+  let clear_process_cache;
+  [process, clear_process_cache] = cacheFunction(process, ({ pixel }) => pixel);
+
   if (debug_level >= 1) console.log("[geowarp] read_bands:", read_bands);
 
   out_pixel_depth ??= out_bands?.length ?? read_bands?.length ?? in_pixel_depth;
@@ -232,10 +270,13 @@ const geowarp = function geowarp({
   if (debug_level >= 1) console.log("[geowarp] out_pixel_height:", out_pixel_height);
   if (debug_level >= 1) console.log("[geowarp] out_pixel_width:", out_pixel_width);
 
-  const half_in_pixel_height = in_pixel_height / 2;
-  const half_in_pixel_width = in_pixel_width / 2;
-  const half_out_pixel_height = out_pixel_height / 2;
-  const half_out_pixel_width = out_pixel_width / 2;
+  const out_sample_height = out_pixel_height * y_scale;
+  const out_sample_width = out_pixel_width * x_scale;
+  if (debug_level >= 1) console.log("[geowarp] out_sample_height:", out_sample_height);
+  if (debug_level >= 1) console.log("[geowarp] out_sample_width:", out_sample_width);
+
+  const half_out_sample_height = out_sample_height / 2;
+  const half_out_sample_width = out_sample_width / 2;
 
   if (theoretical_min === undefined || theoretical_max === undefined) {
     try {
@@ -257,7 +298,7 @@ const geowarp = function geowarp({
   }
 
   // if cutline isn't in the projection of the output, reproject it
-  let segments_by_row = new Array(out_height).fill(0).map(() => []);
+  let segments_by_row = new Array(out_height_in_samples).fill(0).map(() => []);
   if (cutline && cutline_srs !== out_srs) {
     if (!cutline_forward) {
       // fallback to checking if we can use forward
@@ -272,22 +313,22 @@ const geowarp = function geowarp({
         debug_level,
         quiet: true,
         reproject: cutline_forward,
-        threshold: [half_out_pixel_width, half_out_pixel_height]
+        threshold: [half_out_sample_width, half_out_sample_height]
       })?.reproject;
     }
 
     cutline = reprojectGeoJSON(cutline, { reproject: cutline_forward_turbocharged || cutline_forward });
   }
 
-  const full_width_row_segment = [0, out_width - 1];
+  const out_column_max = out_width_in_samples - 1;
+  const full_width_row_segment = [0, out_column_max];
+  const full_width_row = [full_width_row_segment];
 
   if (cutline) {
     const intersections = dufour_peyton_intersection.calculate({
       raster_bbox: out_bbox,
-      raster_height: out_height,
-      raster_width: out_width,
-      pixel_height: out_pixel_height,
-      pixel_width: out_pixel_width,
+      raster_height: out_height_in_samples,
+      raster_width: out_width_in_samples,
       geometry: cutline
     });
 
@@ -301,19 +342,19 @@ const geowarp = function geowarp({
 
       segments_by_row = segments_by_row.map(segs => {
         if (segs.length === 0) {
-          return [full_width_row_segment];
+          return full_width_row;
         } else {
           return segflip({
             segments: segs,
             min: 0,
-            max: out_width - 1,
+            max: out_column_max,
             debug: false
           });
         }
       });
     }
   } else {
-    for (let row_index = 0; row_index < out_height; row_index++) {
+    for (let row_index = 0; row_index < out_height_in_samples; row_index++) {
       segments_by_row[row_index].push(full_width_row_segment);
     }
   }
@@ -338,10 +379,10 @@ const geowarp = function geowarp({
     arrayTypes: out_array_types
   }).data;
 
-  if (typeof insert !== "function") {
+  if (typeof insert_pixel !== "function") {
     const update = xdim.prepareUpdate({ data: out_data, layout: out_layout, sizes: out_sizes });
 
-    insert = ({ row, column, pixel, raw }) => {
+    insert_pixel = ({ row, column, pixel, raw }) => {
       pixel.forEach((value, band) => {
         update({
           point: { band, row, column },
@@ -351,7 +392,22 @@ const geowarp = function geowarp({
     };
   }
 
-  row_end ??= out_height;
+  if (typeof insert_sample !== "function") {
+    if (x_resolution === 1 && y_resolution === 1) {
+      insert_sample = insert_pixel;
+    } else {
+      insert_sample = ({ row, column, pixel, ...rest }) => {
+        const [xmin, ymin, xmax, ymax] = scalePixel([column, row], [x_scale, y_scale]);
+        for (let y = ymin; y < ymax; y++) {
+          for (let x = xmin; x < xmax; x++) {
+            insert_pixel({ row: y, column: x, pixel, ...rest });
+          }
+        }
+      };
+    }
+  }
+
+  row_end ??= out_height_in_samples;
 
   if (debug_level >= 1) console.log("[geowarp] method:", method);
 
@@ -365,7 +421,7 @@ const geowarp = function geowarp({
         debug_level,
         quiet: true,
         reproject: forward,
-        threshold: [half_out_pixel_width, half_out_pixel_height]
+        threshold: [half_out_sample_width, half_out_sample_height]
       });
     }
     if (inverse) {
@@ -376,7 +432,7 @@ const geowarp = function geowarp({
         debug_level,
         quiet: true,
         reproject: inverse,
-        threshold: [half_in_pixel_width, half_in_pixel_height]
+        threshold: [half_out_sample_width, half_out_sample_height]
       });
     }
   }
@@ -385,21 +441,22 @@ const geowarp = function geowarp({
     if (inverse_turbocharged) console.log("[geowarp] turbocharged inverse");
   }
   const fwd = forward_turbocharged?.reproject || forward;
-  const inv = inverse_turbocharged?.reproject || inverse;
+  let inv = inverse_turbocharged?.reproject || inverse;
+  // const [invCached, clearInvCache] = cacheFunction(inv);
 
   const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
 
-  let out_pixel_height_in_srs, out_pixel_width_in_srs, pixel_height_ratio, pixel_width_ratio;
+  let out_sample_height_in_srs, out_sample_width_in_srs, pixel_height_ratio, pixel_width_ratio;
   if (method === "near-vectorize") {
     if (debug_level >= 2) console.log('[geowarp] choosing between "near" and "vectorize" for best speed');
 
     out_bbox_in_srs ??= reprojectBoundingBox({ bbox: out_bbox, reproject: inverse });
 
-    out_pixel_height_in_srs = (out_bbox_in_srs[3] - out_bbox_in_srs[1]) / out_height;
-    out_pixel_width_in_srs = (out_bbox_in_srs[2] - out_bbox_in_srs[0]) / out_width;
+    out_sample_height_in_srs = (out_bbox_in_srs[3] - out_bbox_in_srs[1]) / out_height_in_samples;
+    out_sample_width_in_srs = (out_bbox_in_srs[2] - out_bbox_in_srs[0]) / out_width_in_samples;
 
-    pixel_height_ratio = out_pixel_height_in_srs / in_pixel_height;
-    pixel_width_ratio = out_pixel_width_in_srs / in_pixel_width;
+    pixel_height_ratio = out_sample_height_in_srs / in_pixel_height;
+    pixel_width_ratio = out_sample_width_in_srs / in_pixel_width;
 
     if (debug_level >= 2) console.log("[geowarp] pixel_height_ratio:", pixel_height_ratio);
     if (debug_level >= 2) console.log("[geowarp] pixel_width_ratio:", pixel_width_ratio);
@@ -426,17 +483,17 @@ const geowarp = function geowarp({
     out_bbox_in_srs ??= same_srs ? out_bbox : reprojectBoundingBox({ bbox: out_bbox, reproject: inverse });
     let [left, bottom, right, top] = out_bbox_in_srs;
 
-    out_pixel_height_in_srs ??= (top - bottom) / out_height;
-    if (in_pixel_height < out_pixel_height_in_srs) {
+    out_sample_height_in_srs ??= (top - bottom) / out_height_in_samples;
+    if (in_pixel_height < out_sample_height_in_srs) {
       if (debug_level >= 1) {
-        console.warn(`normalized output pixel height of ${out_pixel_height_in_srs} is larger than input pixel height of ${in_pixel_height}`);
+        console.warn(`normalized height of sample area of ${out_sample_height_in_srs} is larger than input pixel height of ${in_pixel_height}`);
       }
     }
 
-    out_pixel_width_in_srs ??= (right - left) / out_width;
-    if (in_pixel_width < out_pixel_width_in_srs) {
+    out_sample_width_in_srs ??= (right - left) / out_width;
+    if (in_pixel_width < out_sample_width_in_srs) {
       if (debug_level >= 1) {
-        console.warn(`normalized output pixel width of ${out_pixel_width_in_srs} is larger than input pixel width of ${in_pixel_width}`);
+        console.warn(`normalized width of sample area of ${out_sample_width_in_srs} is larger than input pixel width of ${in_pixel_width}`);
       }
     }
 
@@ -465,12 +522,13 @@ const geowarp = function geowarp({
         for (let r = in_row_start_clamped; r <= in_row_end_clamped; r++) {
           const pixel_ymax = pixel_ymin;
           pixel_ymin = pixel_ymax - in_pixel_height;
+          // clear_forward_cache(); // don't want cache to get too large, so just cache each row
           for (let c = in_column_start_clamped; c <= in_column_end_clamped; c++) {
             const raw_values = read_bands.map(band => select({ point: { band, row: r, column: c } }).value);
 
             if (should_skip(raw_values)) continue;
 
-            // apply band math expression, no data mapping, and rounding when applicable
+            // apply band math expression, no-data mapping, and rounding when applicable
             const pixel = process({ pixel: raw_values });
 
             const pixel_xmin = in_xmin + c * in_pixel_width;
@@ -487,21 +545,19 @@ const geowarp = function geowarp({
             const intersect_options = {
               debug: false,
               raster_bbox: out_bbox,
-              raster_height: out_height,
-              raster_width: out_width,
-              pixel_height: out_pixel_height,
-              pixel_width: out_pixel_width,
+              raster_height: out_height_in_samples,
+              raster_width: out_width_in_samples,
               geometry: pixel_geometry_in_out_srs
             };
             if (cutline) {
               intersect_options.per_pixel = ({ row, column }) => {
                 if (segments_by_row[row].some(([start, end]) => column >= start && column <= end)) {
-                  insert({ raw: raw_values, pixel, row, column });
+                  insert_sample({ raw: raw_values, pixel, row, column });
                 }
               };
             } else {
               intersect_options.per_pixel = ({ row, column }) => {
-                insert({ raw: raw_values, pixel, row, column });
+                insert_sample({ raw: raw_values, pixel, row, column });
               };
             }
             dufour_peyton_intersection.calculate(intersect_options);
@@ -510,15 +566,15 @@ const geowarp = function geowarp({
       }
     }
   } else if (method === "near") {
-    const rmax = Math.min(row_end, out_height);
-    let y = out_ymax + half_out_pixel_height - row_start * out_pixel_height;
+    const rmax = Math.min(row_end, out_height_in_samples);
+    let y = out_ymax + half_out_sample_height - row_start * out_sample_height;
     for (let r = row_start; r < rmax; r++) {
-      y -= out_pixel_height;
+      y -= out_sample_height;
       const segments = segments_by_row[r];
       for (let iseg = 0; iseg < segments.length; iseg++) {
         const [cstart, cend] = segments[iseg];
         for (let c = cstart; c <= cend; c++) {
-          const x = out_xmin + c * out_pixel_width + half_out_pixel_width;
+          const x = out_xmin + c * out_sample_width + half_out_sample_width;
           const pt_out_srs = [x, y];
           const pt_in_srs = same_srs ? pt_out_srs : inv(pt_out_srs);
           const [x_in_srs, y_in_srs] = pt_in_srs;
@@ -545,23 +601,32 @@ const geowarp = function geowarp({
 
           if (should_skip(raw_values)) continue;
           const pixel = process({ pixel: raw_values });
-          insert({ row: r, column: c, pixel, raw: raw_values, pt_in_srs, pt_out_srs, x_in_raster_pixels, y_in_raster_pixels });
+          insert_sample({
+            row: r,
+            column: c,
+            pixel,
+            raw: raw_values,
+            pt_in_srs,
+            pt_out_srs,
+            x_in_raster_pixels,
+            y_in_raster_pixels
+          });
         }
       }
     }
   } else if (method === "bilinear") {
     // see https://en.wikipedia.org/wiki/Bilinear_interpolation
 
-    const rmax = Math.min(row_end, out_height);
+    const rmax = Math.min(row_end, out_height_in_samples);
 
-    let y = out_ymax + half_out_pixel_height - row_start * out_pixel_height;
+    let y = out_ymax + half_out_sample_height - row_start * out_sample_height;
     for (let r = row_start; r < rmax; r++) {
-      y -= out_pixel_height;
+      y -= out_sample_height;
       const segments = segments_by_row[r];
       for (let iseg = 0; iseg < segments.length; iseg++) {
         const [cstart, cend] = segments[iseg];
         for (let c = cstart; c <= cend; c++) {
-          const x = out_xmin + c * out_pixel_width + half_out_pixel_width;
+          const x = out_xmin + c * out_sample_width + half_out_sample_width;
           const pt_out_srs = [x, y];
           const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inv(pt_out_srs);
 
@@ -644,7 +709,7 @@ const geowarp = function geowarp({
           }
           if (should_skip(raw_values)) continue;
           const pixel = process({ pixel: raw_values });
-          insert({ row: r, column: c, pixel, raw: raw_values });
+          insert_sample({ row: r, column: c, pixel, raw: raw_values });
         }
       }
     }
@@ -676,17 +741,17 @@ const geowarp = function geowarp({
 
     let top, left, bottom, right;
     bottom = out_ymax - row_start * row_start;
-    const rmax = Math.min(row_end, out_height);
+    const rmax = Math.min(row_end, out_height_in_samples);
     for (let r = row_start; r < rmax; r++) {
       top = bottom;
-      bottom = top - out_pixel_height;
+      bottom = top - out_sample_height;
       const segments = segments_by_row[r];
       for (let iseg = 0; iseg < segments.length; iseg++) {
         const [cstart, cend] = segments[iseg];
-        right = out_xmin + out_pixel_width * cstart;
+        right = out_xmin + out_sample_width * cstart;
         for (let c = cstart; c <= cend; c++) {
           left = right;
-          right = left + out_pixel_width;
+          right = left + out_sample_width;
           // top, left, bottom, right is the sample area in the coordinate system of the output
 
           // convert to bbox of input coordinate system
@@ -752,7 +817,7 @@ const geowarp = function geowarp({
 
           if (should_skip(raw_values)) continue;
           const pixel = process({ pixel: raw_values });
-          insert({ row: r, column: c, pixel, raw: raw_values });
+          insert_sample({ row: r, column: c, pixel, raw: raw_values });
         }
       }
     }
@@ -765,6 +830,8 @@ const geowarp = function geowarp({
     out_layout,
     out_pixel_height,
     out_pixel_width,
+    out_sample_height,
+    out_sample_width,
     read_bands
   };
 };

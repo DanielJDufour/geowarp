@@ -94,6 +94,12 @@ const result = geowarp({
   // width of the output image in pixels
   out_width: 256,
 
+  // horizontal and vertical resolution
+  // resolution of [0.25, 0.25] (i.e. 25%) means that you sample once for every 4 x 4 pixels
+  // this is useful if you need your output to be a certain height or width (like 256 x 256)
+  // but don't necessarily want to render data at that high resolution
+  out_resolution: [0.5, 0.5],
+
   // method for sampling pixels
   // current supported methods are:
   // "near", "vectorize", "near-vectorize", "bilinear", "max", "mean", "median", "min", "mode", "mode-max", "mode-mean", "mode-median", and "mode-min"
@@ -154,9 +160,22 @@ const result = geowarp({
   // you don't want this in most cases
   // over-ride the default function for inserting data into the output multidimensional array
   // useful if writing to an alternative object like a canvas
-  insert: ({ row, column, pixel }) => {
+  insert_pixel: ({ row, column, pixel }) => {
     context.fillStyle = toColor(pixel);
     context.fillRect(column, row, 1, 1);
+  },
+
+  // completely optional and not recommended in most cases
+  // take pixel values for a given sample located by sample row and column
+  // and insert into the output multidimensional array
+  // by default, this will call insert_pixel
+  insert_sample: ({ row, column, pixel }) => {
+    const [xmin, ymin, xmax, ymax] = scalePixel([column, row], [x_scale, y_scale]);
+    for (let y = ymin; y < ymax; y++) {
+      for (let x = xmin; x < xmax; x++) {
+        insert_pixel({ row: y, column: x, pixel });
+      }
+    }
   },
 
   // skip writing a pixel if "any" or "all" its values are no data
