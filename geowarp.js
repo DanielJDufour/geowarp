@@ -211,7 +211,7 @@ const geowarp = function geowarp({
   let process;
   if (expr) {
     if (round) {
-      process = ({ pixel }) => expr(pixel).map(n => Math.round(n));
+      process = ({ pixel }) => expr({ pixel }).map(n => Math.round(n));
     } else {
       process = expr; // maps ({ pixel }) to new pixel
     }
@@ -238,8 +238,8 @@ const geowarp = function geowarp({
   }
 
   // currently unused
-  let clear_process_cache;
-  [process, clear_process_cache] = cacheFunction(process, ({ pixel }) => pixel);
+  // let clear_process_cache;
+  // [process, clear_process_cache] = cacheFunction(process, ({ pixel }) => pixel);
 
   if (debug_level >= 1) console.log("[geowarp] read_bands:", read_bands);
 
