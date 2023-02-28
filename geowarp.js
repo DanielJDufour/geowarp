@@ -530,9 +530,6 @@ const geowarp = function geowarp({
 
             if (should_skip(raw_values)) continue;
 
-            // apply band math expression, no-data mapping, and rounding when applicable
-            const pixel = process({ pixel: raw_values });
-
             const pixel_xmin = in_xmin + c * in_pixel_width;
             const pixel_xmax = pixel_xmin + in_pixel_width;
 
@@ -551,6 +548,10 @@ const geowarp = function geowarp({
               raster_width: out_width_in_samples,
               geometry: pixel_geometry_in_out_srs
             };
+
+            // apply band math expression, no-data mapping, and rounding when applicable
+            const pixel = process({ pixel: raw_values });
+
             if (cutline) {
               intersect_options.per_pixel = ({ row, column }) => {
                 if (segments_by_row[row].some(([start, end]) => column >= start && column <= end)) {
