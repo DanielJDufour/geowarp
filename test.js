@@ -415,38 +415,47 @@ const runTileTests = async ({
 });
 
 ["bilinear", "near", "min", "max", "median"].forEach(method => {
-  test("expr " + method, async ({ eq }) => {
-    const info = await readTile({ x: 3853, y: 6815, z: 14, filename: "SkySat_Freeport_s03_20170831T162740Z3.tif" });
+  ["sync", "async"].forEach(sync_or_async => {
+    test(`${method} + performance + expr + ${sync_or_async}`, async ({ eq }) => {
+      const info = await readTile({ x: 3853, y: 6815, z: 14, filename: "SkySat_Freeport_s03_20170831T162740Z3.tif" });
 
-    const result = geowarp({
-      debug_level: 0,
-      // rescale and add alpha channel
-      read_bands: [0, 1], // only read the first two bands
-      expr: ({ pixel }) => pixel.map(v => v / 255).concat([0, 1]),
-      reproject: proj4("EPSG:" + 3857, "EPSG:" + info.geotiff_srs).forward,
+      let expr;
+      if (sync_or_async === "sync") {
+        expr = ({ pixel }) => pixel.map(v => v / 255).concat([0, 1]);
+      } else {
+        expr = async ({ pixel }) => pixel.map(v => v / 255).concat([0, 1]);
+      }
 
-      // regarding input data
-      in_data: info.data,
-      in_bbox: info.geotiff_bbox,
-      in_srs: info.geotiff_srs,
-      in_width: info.width,
-      in_height: info.height,
+      const result = await geowarp({
+        debug_level: 0,
+        // rescale and add alpha channel
+        read_bands: [0, 1], // only read the first two bands
+        expr,
+        reproject: proj4("EPSG:" + 3857, "EPSG:" + info.geotiff_srs).forward,
 
-      // regarding location to paint
-      out_bbox: info.tile_bbox,
-      out_layout: "[row,column,band]",
-      out_pixel_depth: 4,
-      out_srs: 3857,
-      out_height: 256,
-      out_width: 256,
-      method,
-      round: true
+        // regarding input data
+        in_data: info.data,
+        in_bbox: info.geotiff_bbox,
+        in_srs: info.geotiff_srs,
+        in_width: info.width,
+        in_height: info.height,
+
+        // regarding location to paint
+        out_bbox: info.tile_bbox,
+        out_layout: "[row,column,band]",
+        out_pixel_depth: 4,
+        out_srs: 3857,
+        out_height: 256,
+        out_width: 256,
+        method,
+        round: true
+      });
+      eq(
+        result.data.every(n => n >= 0 && n <= 1),
+        true
+      );
+      eq(result.read_bands, [0, 1]);
     });
-    eq(
-      result.data.every(n => n >= 0 && n <= 1),
-      true
-    );
-    eq(result.read_bands, [0, 1]);
   });
 });
 
@@ -546,18 +555,25 @@ test("OpenLandMap", async ({ eq }) => {
   const out_bbox = reprojectBoundingBox({ bbox: tile_bbox, from: 4326, to: 3857 });
 
   console.log({ tile_bbox, out_bbox });
-  const out_height = 1;
-  const out_width = 1;
+  // const out_height = 1;
+  // const out_width = 1;
+
+  const out_height = 512;
+  const out_width = 512;
 
   // const methods = ["vectorize", "near", "bilinear", "median"];
   const methods = ["near"];
-  methods.forEach(method => {
+  for (let m = 0; m < methods.length; m++) {
+    const method = methods[m];
     console.log("method:", method);
     const options = {
       debug_level: 0,
       inverse,
       forward,
-
+      expr: ({ pixel }) =>
+        new Promise(res => {
+          setTimeout(() => res(pixel[0] >= 1 ? [0, 255, 0] : [0, 0, 0]), 1);
+        }),
       // regarding input data
       in_bbox: image.getBoundingBox(),
       in_data,
@@ -568,20 +584,26 @@ test("OpenLandMap", async ({ eq }) => {
 
       // regarding location to paint
       out_array_types: ["Array", "Array", "Array"],
+      out_pixel_depth: 3,
       out_bbox,
       out_layout: "[band][row][column]",
       out_srs,
       out_height,
       out_width,
       method,
-      round: true
+      round: true,
+      cache_process: true
     };
 
-    const warped = geowarp(options);
+    const warped = await geowarp(options);
+
+    if (process.env.WRITE) {
+      writePNGSync({ h: out_height, w: out_width, data: warped.data, filepath: "./test-output/openlandmap" });
+    }
 
     const value = warped.data[0][0][out_width - 1];
     eq(value !== null, true);
-  });
+  }
 });
 
 test("rescale", async ({ eq }) => {

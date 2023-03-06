@@ -6,9 +6,10 @@ const getDepth = require("get-depth");
 const getTheoreticalMax = require("typed-array-ranges/get-max");
 const getTheoreticalMin = require("typed-array-ranges/get-min");
 const fasterMedian = require("faster-median");
-const reprojectBoundingBox = require("reproject-bbox/pluggable");
+const reprojectBoundingBox = require("bbox-fns/reproject.js");
 const reprojectGeoJSON = require("reproject-geojson/pluggable");
 const { turbocharge } = require("proj-turbo");
+const quickResolve = require("quick-resolve");
 const segflip = require("segflip");
 const xdim = require("xdim");
 
@@ -83,10 +84,29 @@ const mode = (nums, no_data) => {
 };
 
 // returns [functionCached, clearCache]
-// const cacheFunction = (f, str = it => it.toString()) => {
-//   let cache = {};
-//   return [xy => (cache[str(xy)] ??= f(xy)), () => (cache = {})];
-// };
+const cacheFunction = (f, str = it => it.toString()) => {
+  let cache = {};
+  return [xy => (cache[str(xy)] ??= f(xy)), () => (cache = {})];
+};
+
+// generate a histogram from evenly spaced sample points
+// purpose is to give us a sense of the distribution of pixel values
+// without spending a lot of time reading every point
+const quickHistogram = ({ select, width, height }, [across, down]) => {
+  const hist = {};
+  const x_scale = width / across;
+  const y_scale = height / down;
+  const rows = new Array(down).fill(null).map((_, i) => Math.floor(i * y_scale));
+  const cols = new Array(across).fill(null).map((_, i) => Math.floor(i * x_scale));
+  rows.forEach(row => {
+    cols.forEach(column => {
+      const value = select({ row, column });
+      if (value in hist) hist[value]++;
+      else hist[value] = 1;
+    });
+  });
+  return Object.entries(hist).sort(([apx, act], [bpx, bct]) => Math.sign(bct - act));
+};
 
 const geowarp = function geowarp({
   debug_level = 0,
@@ -107,6 +127,7 @@ const geowarp = function geowarp({
   out_pixel_height, // optional, automatically calculated from out_bbox
   out_pixel_width, // optional, automatically calculated from out_bbox
   out_bbox = null,
+  out_bbox_in_srs, // very optional, output bbox reprojected into the srs of the input
   out_layout,
   out_resolution = [1, 1],
   out_srs,
@@ -132,12 +153,16 @@ const geowarp = function geowarp({
   turbo = false, // enable experimental turbocharging via proj-turbo
   insert_pixel, // over-ride function that inserts data into output multi-dimensional array
   insert_sample, // over-ride function that inserts each sample into the output multi-dimensional array (calls insert)
-  skip_no_data_strategy // skip processing pixels if "any" or "all" values are "no data"
+  skip_no_data_strategy, // skip processing pixels if "any" or "all" values are "no data"
+  cache_process = false // whether to try to cache the processing step
   // cache_functions // this really helps if functions are asynchronous and require posting to a web worker
-  // async // run geowarp in async mode
 }) {
   if (debug_level >= 1) console.log("[geowarp] starting");
   const start_time = debug_level >= 1 ? performance.now() : 0;
+
+  // track pending promises without the memory overhead
+  // of holding all the promises in memory
+  let pending = 0;
 
   const [out_height_in_samples, y_resolution, y_scale] = scaleInteger(out_height, out_resolution[1]);
   const [out_width_in_samples, x_resolution, x_scale] = scaleInteger(out_width, out_resolution[0]);
@@ -157,12 +182,12 @@ const geowarp = function geowarp({
   // support for deprecated insert
   insert_pixel ??= arguments[0].insert;
 
-  let in_bbox_out_srs, out_bbox_in_srs, intersect_bbox_in_srs, intersect_bbox_out_srs;
+  let in_bbox_out_srs, intersect_bbox_in_srs, intersect_bbox_out_srs;
 
   if (!same_srs) {
     if (!in_bbox) throw new Error("[geowarp] can't reproject without in_bbox");
     if (!out_bbox) {
-      if (forward) out_bbox = in_bbox_out_srs = intersect_bbox_out_srs = reprojectBoundingBox({ bbox: in_bbox, reproject: forward });
+      if (forward) out_bbox = in_bbox_out_srs = intersect_bbox_out_srs = reprojectBoundingBox(in_bbox, forward, { density: 100 });
       else throw new Error("[geowarp] must specify out_bbox or forward");
     }
   }
@@ -213,7 +238,7 @@ const geowarp = function geowarp({
   let process;
   if (expr) {
     if (round) {
-      process = ({ pixel }) => expr({ pixel }).map(n => Math.round(n));
+      process = ({ pixel }) => quickResolve(expr({ pixel })).then(pixel => pixel.map(n => Math.round(n)));
     } else {
       process = expr; // maps ({ pixel }) to new pixel
     }
@@ -239,9 +264,11 @@ const geowarp = function geowarp({
     }
   }
 
-  // currently unused
-  // let clear_process_cache;
-  // [process, clear_process_cache] = cacheFunction(process, ({ pixel }) => pixel);
+  let clear_process_cache;
+  if (cache_process) {
+    // eslint-disable-next-line no-unused-vars
+    [process, clear_process_cache] = cacheFunction(process, ({ pixel }) => pixel.toString());
+  }
 
   if (debug_level >= 1) console.log("[geowarp] read_bands:", read_bands);
 
@@ -367,6 +394,35 @@ const geowarp = function geowarp({
     column: in_width
   };
 
+  const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
+
+  const selectPixel = ({ row, column }) =>
+    read_bands.map(
+      band =>
+        select({
+          point: {
+            band,
+            row,
+            column
+          }
+        }).value
+    );
+
+  const hist = quickHistogram({ select: selectPixel, width: in_width, height: in_height }, [10, 10]);
+  const { hits, total } = hist.reduce(
+    (acc, [px, ct]) => {
+      acc.total += ct;
+      acc.hits += ct - 1; // subtracting 1 because the first instance of something won't use the cache
+      return acc;
+    },
+    { hits: 0, total: 0 }
+  );
+  const predicted_cache_hit_rate = hits / total;
+
+  if (cache_process === undefined || cache_process === null) {
+    cache_process = predicted_cache_hit_rate >= 0.85;
+  }
+
   // dimensions of the output
   const out_sizes = {
     band: out_pixel_depth,
@@ -384,7 +440,7 @@ const geowarp = function geowarp({
   if (typeof insert_pixel !== "function") {
     const update = xdim.prepareUpdate({ data: out_data, layout: out_layout, sizes: out_sizes });
 
-    insert_pixel = ({ row, column, pixel, raw }) => {
+    const insert_pixel_sync = ({ row, column, pixel, raw }) => {
       pixel.forEach((value, band) => {
         update({
           point: { band, row, column },
@@ -392,11 +448,27 @@ const geowarp = function geowarp({
         });
       });
     };
+
+    const insert_pixel_async = ({ pixel: px, row, ...rest }) => {
+      pending++;
+      return px.then(pixel => {
+        insert_pixel_sync({ pixel, row, ...rest });
+        pending--;
+      });
+    };
+
+    insert_pixel = ({ pixel, ...rest }) => {
+      // hot swap insert_pixel based on whether the first call returns a promise or not
+      insert_pixel = pixel.then ? insert_pixel_async : insert_pixel_sync;
+      insert_pixel({ pixel, ...rest });
+    };
   }
 
   if (typeof insert_sample !== "function") {
     if (x_resolution === 1 && y_resolution === 1) {
-      insert_sample = insert_pixel;
+      // we call insert_pixel instead of setting insert_sample = insert_pixel
+      // because insert_pixel might have been hot swapped
+      insert_sample = params => insert_pixel(params);
     } else {
       insert_sample = ({ row, column, pixel, ...rest }) => {
         const [xmin, ymin, xmax, ymax] = scalePixel([column, row], [x_scale, y_scale]);
@@ -416,7 +488,7 @@ const geowarp = function geowarp({
   let forward_turbocharged, inverse_turbocharged;
   if (turbo) {
     if (forward) {
-      out_bbox_in_srs ??= reprojectBoundingBox({ bbox: out_bbox, reproject: inverse });
+      out_bbox_in_srs ??= reprojectBoundingBox(out_bbox, inverse, { density: 100 });
       intersect_bbox_in_srs ??= intersect(in_bbox, out_bbox_in_srs);
       forward_turbocharged = turbocharge({
         bbox: intersect_bbox_in_srs,
@@ -427,7 +499,7 @@ const geowarp = function geowarp({
       });
     }
     if (inverse) {
-      in_bbox_out_srs ??= reprojectBoundingBox({ bbox: in_bbox, reproject: forward });
+      in_bbox_out_srs ??= reprojectBoundingBox(in_bbox, forward, { density: 100 });
       intersect_bbox_out_srs ??= intersect(out_bbox, in_bbox_out_srs);
       inverse_turbocharged = turbocharge({
         bbox: intersect_bbox_out_srs,
@@ -446,13 +518,11 @@ const geowarp = function geowarp({
   const inv = inverse_turbocharged?.reproject || inverse;
   // const [invCached, clearInvCache] = cacheFunction(inv);
 
-  const select = xdim.prepareSelect({ data: in_data, layout: in_layout, sizes: in_sizes });
-
   let out_sample_height_in_srs, out_sample_width_in_srs, pixel_height_ratio, pixel_width_ratio;
   if (method === "near-vectorize") {
     if (debug_level >= 2) console.log('[geowarp] choosing between "near" and "vectorize" for best speed');
 
-    out_bbox_in_srs ??= reprojectBoundingBox({ bbox: out_bbox, reproject: inverse });
+    out_bbox_in_srs ??= reprojectBoundingBox(out_bbox, inverse, { density: 100 });
 
     out_sample_height_in_srs = (out_bbox_in_srs[3] - out_bbox_in_srs[1]) / out_height_in_samples;
     out_sample_width_in_srs = (out_bbox_in_srs[2] - out_bbox_in_srs[0]) / out_width_in_samples;
@@ -482,7 +552,7 @@ const geowarp = function geowarp({
     // const [cfwd, clear_forward_cache] = cacheFunction(fwd);
 
     // reproject bounding box of output (e.g. a tile) into the spatial reference system of the input data
-    out_bbox_in_srs ??= same_srs ? out_bbox : reprojectBoundingBox({ bbox: out_bbox, reproject: inverse });
+    out_bbox_in_srs ??= same_srs ? out_bbox : reprojectBoundingBox(out_bbox, inverse, { density: 100 });
     let [left, bottom, right, top] = out_bbox_in_srs;
 
     out_sample_height_in_srs ??= (top - bottom) / out_height_in_samples;
@@ -522,6 +592,7 @@ const geowarp = function geowarp({
 
         let pixel_ymin = in_ymax - in_row_start_clamped * in_pixel_height;
         for (let r = in_row_start_clamped; r <= in_row_end_clamped; r++) {
+          // if (clear_process_cache) clear_process_cache();
           const pixel_ymax = pixel_ymin;
           pixel_ymin = pixel_ymax - in_pixel_height;
           // clear_forward_cache(); // don't want cache to get too large, so just cache each row
@@ -572,6 +643,7 @@ const geowarp = function geowarp({
     const rmax = Math.min(row_end, out_height_in_samples);
     let y = out_ymax + half_out_sample_height - row_start * out_sample_height;
     for (let r = row_start; r < rmax; r++) {
+      // if (clear_process_cache) clear_process_cache();
       y -= out_sample_height;
       const segments = segments_by_row[r];
       for (let iseg = 0; iseg < segments.length; iseg++) {
@@ -590,16 +662,10 @@ const geowarp = function geowarp({
             // through reprojection, we can sometimes find ourselves just across the edge
             raw_values = new Array(read_bands.length).fill(in_no_data);
           } else {
-            raw_values = read_bands.map(
-              band =>
-                select({
-                  point: {
-                    band,
-                    row: y_in_raster_pixels,
-                    column: x_in_raster_pixels
-                  }
-                }).value
-            );
+            raw_values = selectPixel({
+              row: y_in_raster_pixels,
+              column: x_in_raster_pixels
+            });
           }
 
           if (should_skip(raw_values)) continue;
@@ -624,6 +690,7 @@ const geowarp = function geowarp({
 
     let y = out_ymax + half_out_sample_height - row_start * out_sample_height;
     for (let r = row_start; r < rmax; r++) {
+      // if (clear_process_cache) clear_process_cache();
       y -= out_sample_height;
       const segments = segments_by_row[r];
       for (let iseg = 0; iseg < segments.length; iseg++) {
@@ -746,6 +813,7 @@ const geowarp = function geowarp({
     bottom = out_ymax - row_start * row_start;
     const rmax = Math.min(row_end, out_height_in_samples);
     for (let r = row_start; r < rmax; r++) {
+      // if (clear_process_cache) clear_process_cache();
       top = bottom;
       bottom = top - out_sample_height;
       const segments = segments_by_row[r];
@@ -758,7 +826,7 @@ const geowarp = function geowarp({
           // top, left, bottom, right is the sample area in the coordinate system of the output
 
           // convert to bbox of input coordinate system
-          const bbox_in_srs = same_srs ? [left, bottom, right, top] : reprojectBoundingBox({ bbox: [left, bottom, right, top], reproject: inv });
+          const bbox_in_srs = same_srs ? [left, bottom, right, top] : reprojectBoundingBox([left, bottom, right, top], inv, { density: 0 });
           if (debug_level >= 3) console.log("[geowarp] bbox_in_srs:", bbox_in_srs);
           const [xmin_in_srs, ymin_in_srs, xmax_in_srs, ymax_in_srs] = bbox_in_srs;
 
@@ -827,7 +895,8 @@ const geowarp = function geowarp({
   }
 
   if (debug_level >= 1) console.log("[geowarp] took " + (performance.now() - start_time).toFixed(0) + "ms");
-  return {
+
+  const result = {
     data: out_data,
     out_bands,
     out_layout,
@@ -837,6 +906,22 @@ const geowarp = function geowarp({
     out_sample_width,
     read_bands
   };
+
+  if (pending > 0) {
+    // async return
+    return new Promise(resolve => {
+      const ms = 5; // re-check every 5 milliseconds
+      const intervalId = setInterval(() => {
+        if (pending === 0) {
+          clearInterval(intervalId);
+          resolve(result);
+        }
+      }, ms);
+    });
+  } else {
+    // sync return
+    return result;
+  }
 };
 
 if (typeof module === "object") {

@@ -124,6 +124,7 @@ const result = geowarp({
 
   // optional
   // band math expression that maps a pixel from the read bands to the output
+  // if expr is async (i.e. returns a promise), geowarp will return a promise
   expr: ({ pixel }) => {
     // clamp values above 100
     return pixel.map(value => Math.min(value, 100));
