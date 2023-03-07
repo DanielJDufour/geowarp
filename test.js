@@ -643,3 +643,43 @@ test("rescale", async ({ eq }) => {
   eq(data.length, 4); // check band count
   eq(data[0][0].constructor.name, "Array");
 });
+
+test("auto-detect out_pixel_depth", async ({ eq }) => {
+  const filename = "gadas.tif";
+  const filepath = path.resolve(__dirname, "./test-data", filename);
+  const geotiff = await GeoTIFF.fromFile(filepath);
+  const image = await geotiff.getImage(0);
+  const rasters = await image.readRasters();
+  const in_bbox = image.getBoundingBox();
+  const height = image.getHeight();
+  const width = image.getWidth();
+  // ProjectedCSTypeGeoKey says 32767, but PCSCitationGeoKey says ESRI PE String = 3857.esriwkt
+  const in_srs = 3857;
+  const out_srs = 3857;
+  const out_height = Math.round(height / 10);
+  const out_width = Math.round(width / 10);
+
+  const result = await geowarp({
+    debug_level: 1,
+    expr: async ({ pixel: [r, g, b, a] }) => (b > 150 ? [223, 255, 0] : [r, g, b]),
+    in_bbox,
+    in_data: rasters,
+    in_layout: "[band][row,column]",
+    in_srs,
+    in_height: height,
+    in_width: width,
+    out_height,
+    out_width,
+    out_layout: "[band][row][column]",
+    out_srs,
+    method: "median"
+  });
+
+  const { data } = result;
+
+  if (process.env.WRITE) {
+    writePNGSync({ h: out_height, w: out_width, data, filepath: "./test-output/out-pixel-depth" });
+  }
+  eq(data.length, 3); // check band count
+  eq(data[0][0].constructor.name, "Array");
+});

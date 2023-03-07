@@ -123,7 +123,7 @@ const geowarp = function geowarp({
   out_array_types, // array of constructor names passed to internal call to xdim's prepareData function
   out_bands, // array of bands to keep and order, default is keeping all the bands in same order
   out_data, // single or multi-dimensional array that geowarp will fill in with the output
-  out_pixel_depth, // number of output bands
+  out_pixel_depth, // optional, number of output bands
   out_pixel_height, // optional, automatically calculated from out_bbox
   out_pixel_width, // optional, automatically calculated from out_bbox
   out_bbox = null,
@@ -271,9 +271,6 @@ const geowarp = function geowarp({
   }
 
   if (debug_level >= 1) console.log("[geowarp] read_bands:", read_bands);
-
-  out_pixel_depth ??= out_bands?.length ?? read_bands?.length ?? in_pixel_depth;
-
   if (debug_level >= 1) console.log("[geowarp] out_height:", out_height);
   if (debug_level >= 1) console.log("[geowarp] out_width:", out_width);
 
@@ -423,24 +420,11 @@ const geowarp = function geowarp({
     cache_process = predicted_cache_hit_rate >= 0.85;
   }
 
-  // dimensions of the output
-  const out_sizes = {
-    band: out_pixel_depth,
-    row: out_height,
-    column: out_width
-  };
-
-  out_data ??= xdim.prepareData({
-    fill: out_no_data,
-    layout: out_layout,
-    sizes: out_sizes,
-    arrayTypes: out_array_types
-  }).data;
-
   if (typeof insert_pixel !== "function") {
-    const update = xdim.prepareUpdate({ data: out_data, layout: out_layout, sizes: out_sizes });
+    let update;
 
-    const insert_pixel_sync = ({ row, column, pixel, raw }) => {
+    // only works once update is defined later on
+    const update_pixel = ({ row, column, pixel }) => {
       pixel.forEach((value, band) => {
         update({
           point: { band, row, column },
@@ -449,18 +433,44 @@ const geowarp = function geowarp({
       });
     };
 
-    const insert_pixel_async = ({ pixel: px, row, ...rest }) => {
-      pending++;
-      return px.then(pixel => {
-        insert_pixel_sync({ pixel, row, ...rest });
-        pending--;
-      });
+    let insert_pixel_sync = ({ pixel, ...rest }) => {
+      try {
+        out_pixel_depth ??= pixel.length;
+        if (debug_level >= 1) console.log("[geowarp] out_pixel_depth:", out_pixel_depth);
+
+        const out_sizes = {
+          band: out_pixel_depth,
+          row: out_height,
+          column: out_width
+        };
+        if (debug_level >= 1) console.log("[geowarp] out_sizes:", out_sizes);
+
+        out_data ??= xdim.prepareData({
+          fill: out_no_data,
+          layout: out_layout,
+          sizes: out_sizes,
+          arrayTypes: out_array_types
+        }).data;
+        if (debug_level >= 1) console.log("[geowarp] out_data:", typeof out_data);
+
+        update = xdim.prepareUpdate({ data: out_data, layout: out_layout, sizes: out_sizes });
+        if (debug_level >= 1) console.log("[geowarp] prepared update function");
+
+        // replace self, so subsequent calls go directly to update_pixel
+        insert_pixel_sync = update_pixel;
+
+        update_pixel({ pixel, ...rest });
+      } catch (error) {
+        console.error("first call to insert_pixel_sync failed:", error);
+      }
     };
 
     insert_pixel = ({ pixel, ...rest }) => {
-      // hot swap insert_pixel based on whether the first call returns a promise or not
-      insert_pixel = pixel.then ? insert_pixel_async : insert_pixel_sync;
-      insert_pixel({ pixel, ...rest });
+      pending++;
+      quickResolve(pixel).then(px => {
+        insert_pixel_sync({ pixel: px, ...rest });
+        pending--;
+      });
     };
   }
 
@@ -896,7 +906,7 @@ const geowarp = function geowarp({
 
   if (debug_level >= 1) console.log("[geowarp] took " + (performance.now() - start_time).toFixed(0) + "ms");
 
-  const result = {
+  const generate_result = () => ({
     data: out_data,
     out_bands,
     out_layout,
@@ -905,7 +915,7 @@ const geowarp = function geowarp({
     out_sample_height,
     out_sample_width,
     read_bands
-  };
+  });
 
   if (pending > 0) {
     // async return
@@ -914,13 +924,13 @@ const geowarp = function geowarp({
       const intervalId = setInterval(() => {
         if (pending === 0) {
           clearInterval(intervalId);
-          resolve(result);
+          resolve(generate_result());
         }
       }, ms);
     });
   } else {
     // sync return
-    return result;
+    return generate_result();
   }
 };
 

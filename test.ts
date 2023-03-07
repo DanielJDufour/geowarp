@@ -369,6 +369,7 @@ const runTileTests = async ({
       "20,23,12",
       "22,30,17",
       "22,30,19",
+      "36,46,45",
       "42,51,48"
     ],
     turbos: [false, true],
