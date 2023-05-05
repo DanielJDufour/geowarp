@@ -10,6 +10,7 @@ const proj4 = require("proj4-fully-loaded");
 const reprojectBoundingBox = require("reproject-bbox");
 const tilebelt = require("@mapbox/tilebelt");
 const { getPalette } = require("geotiff-palette");
+const getPreciseBoundingBox = require("geotiff-precise-bbox");
 const xdim = require("xdim");
 const writeImage = require("write-image");
 
@@ -24,6 +25,8 @@ const writePNGSync = ({ h, w, data, filepath }) => {
   fs.writeFileSync(`${filepath}.png`, buf);
 };
 
+const getBoundingBox = image => getPreciseBoundingBox(image).map(n => Number(n));
+
 ["vectorize", "near", "median", "bilinear"].forEach(method => {
   ["inside", "outside"].forEach(cutline_strategy => {
     test("cutline " + cutline_strategy + " " + method, async ({ eq }) => {
@@ -34,7 +37,7 @@ const writePNGSync = ({ h, w, data, filepath }) => {
       const geotiff = await GeoTIFF.fromFile(filepath);
       const image = await geotiff.getImage(0);
       const rasters = await image.readRasters();
-      const in_bbox = image.getBoundingBox();
+      const in_bbox = getBoundingBox(image);
       const height = image.getHeight();
       const width = image.getWidth();
       // ProjectedCSTypeGeoKey says 32767, but PCSCitationGeoKey says ESRI PE String = 3857.esriwkt
@@ -500,7 +503,7 @@ test("edge case: web mercator tile from UTM", async ({ eq }) => {
       },
 
       // regarding input data
-      in_bbox: image.getBoundingBox(),
+      in_bbox: getBoundingBox(image),
       in_data,
       in_layout: "[band][row][column]",
       in_srs,
@@ -575,7 +578,7 @@ test("OpenLandMap", async ({ eq }) => {
           setTimeout(() => res(pixel[0] >= 1 ? [0, 255, 0] : [0, 0, 0]), 1);
         }),
       // regarding input data
-      in_bbox: image.getBoundingBox(),
+      in_bbox: getBoundingBox(image),
       in_data,
       in_layout: "[band][row][column]",
       in_srs,
@@ -612,7 +615,7 @@ test("rescale", async ({ eq }) => {
   const geotiff = await GeoTIFF.fromFile(filepath);
   const image = await geotiff.getImage(0);
   const rasters = await image.readRasters();
-  const in_bbox = image.getBoundingBox();
+  const in_bbox = getBoundingBox(image);
   const height = image.getHeight();
   const width = image.getWidth();
   // ProjectedCSTypeGeoKey says 32767, but PCSCitationGeoKey says ESRI PE String = 3857.esriwkt
@@ -650,7 +653,7 @@ test("auto-detect out_pixel_depth", async ({ eq }) => {
   const geotiff = await GeoTIFF.fromFile(filepath);
   const image = await geotiff.getImage(0);
   const rasters = await image.readRasters();
-  const in_bbox = image.getBoundingBox();
+  const in_bbox = getBoundingBox(image);
   const height = image.getHeight();
   const width = image.getWidth();
   // ProjectedCSTypeGeoKey says 32767, but PCSCitationGeoKey says ESRI PE String = 3857.esriwkt
@@ -682,4 +685,129 @@ test("auto-detect out_pixel_depth", async ({ eq }) => {
   }
   eq(data.length, 3); // check band count
   eq(data[0][0].constructor.name, "Array");
+});
+
+test("skew", async ({ eq }) => {
+  // https://a.tile.openstreetmap.org/18/254460/145575.png
+  // https://a.tile.openstreetmap.org/14/15903/9098.png
+
+  const filename = "umbra_mount_yasur.tiff";
+  const filepath = path.resolve(__dirname, "./test-data", filename);
+  const geotiff = await GeoTIFF.fromFile(filepath);
+  const image = await geotiff.getImage(0);
+  const in_data = await image.readRasters();
+  const in_bbox = getBoundingBox(image);
+  const in_height = image.getHeight();
+  const in_width = image.getWidth();
+  const fd = image.fileDirectory;
+  const geokeys = image.getGeoKeys();
+  const in_srs = geokeys.ProjectedCSTypeGeoKey;
+  const mt = fd.ModelTransformation;
+  const in_geotransform = [mt[3], mt[0], mt[1], mt[7], mt[4], mt[5]];
+
+  // write unwarped for debugging
+  if (process.env.WRITE) {
+    writePNGSync({ h: in_height, w: in_width, data: [in_data[0], in_data[0], in_data[0]], filepath: "./test-output/skew-original" });
+  }
+
+  const resized = await geowarp({
+    expr: ({ pixel }) => [pixel[0], pixel[0], pixel[0]],
+    in_bbox: [0, 0, in_width, in_height],
+    in_data,
+    in_height,
+    in_width,
+    out_height: 64,
+    out_layout: "[band][row][column]",
+    out_width: 64,
+    method: "median"
+  });
+
+  if (process.env.WRITE) {
+    writePNGSync({ h: 64, w: 64, data: resized.data, filepath: "./test-output/skew-resized" });
+  }
+
+  const unskewed = await geowarp({
+    debug_level: 0,
+    expr: ({ pixel }) => [pixel[0], pixel[0], pixel[0]],
+    in_bbox,
+    in_geotransform,
+    in_data,
+    in_layout: "[band][row,column]",
+    in_srs,
+    in_height,
+    in_width,
+    out_height: 512,
+    out_width: 512,
+    out_layout: "[band][row][column]",
+    out_srs: in_srs,
+    method: "near"
+  });
+  if (process.env.WRITE) {
+    writePNGSync({ h: 512, w: 512, data: unskewed.data, filepath: "./test-output/unskewed" });
+  }
+
+  const methods = ["near", "bilinear", "median"];
+  for (let i = 0; i < methods.length; i++) {
+    const method = methods[i];
+    const out_srs = 3857;
+    // https://a.tile.openstreetmap.org/14/15903/9098.png
+
+    const bbox4326 = tilebelt.tileToBBOX([15903, 9098, 14]);
+    const bbox3857 = reprojectBoundingBox({ bbox: bbox4326, from: 4326, to: 3857 });
+    const out_size = 512;
+    const webmercator = await geowarp({
+      debug_level: 0,
+      expr: ({ pixel }) => [pixel[0], pixel[0], pixel[0]],
+      ...proj4("EPSG:" + in_srs, "EPSG:" + out_srs),
+      in_bbox,
+      in_geotransform,
+      in_data,
+      in_layout: "[band][row,column]",
+      in_srs,
+      in_height,
+      in_width,
+      out_bbox: bbox3857,
+      out_height: out_size,
+      out_width: out_size,
+      out_layout: "[band][row][column]",
+      out_srs: 3857,
+      method
+    });
+
+    if (process.env.WRITE) {
+      writePNGSync({ h: out_size, w: out_size, data: webmercator.data, filepath: "./test-output/unskewed-webmercator-" + method });
+    }
+    eq(webmercator.data.length, 3); // check band count
+    eq(webmercator.data[0][0].constructor.name, "Array");
+  }
+
+  // zoomed into caldera: https://a.tile.openstreetmap.org/18/254460/145575.png
+  // but in 4326 projection
+  {
+    const out_srs = 4326;
+    const vectorized = await geowarp({
+      expr: ({ pixel }) => {
+        // console.log(pixel)
+        return [pixel[0], pixel[0], pixel[0]];
+      },
+      ...proj4("EPSG:" + in_srs, "EPSG:" + out_srs),
+      in_bbox,
+      in_data,
+      in_geotransform,
+      in_layout: "[band][row,column]",
+      in_srs,
+      in_height,
+      in_width,
+      out_bbox: tilebelt.tileToBBOX([508919, 291152, 19]),
+      out_height: 512,
+      out_width: 512,
+      out_layout: "[band][row][column]",
+      out_srs,
+      method: "vectorize"
+    });
+
+    if (process.env.WRITE) {
+      writePNGSync({ h: 512, w: 512, data: vectorized.data, filepath: "./test-output/unskewed-vectorized" });
+    }
+  }
 });

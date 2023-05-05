@@ -2,6 +2,7 @@ const { booleanIntersects, intersect, polygon } = require("bbox-fns");
 const dufour_peyton_intersection = require("dufour-peyton-intersection");
 const fastMax = require("fast-max");
 const fastMin = require("fast-min");
+const Geotransform = require("geoaffine/Geotransform.js");
 const getDepth = require("get-depth");
 const getTheoreticalMax = require("typed-array-ranges/get-max");
 const getTheoreticalMin = require("typed-array-ranges/get-min");
@@ -112,6 +113,7 @@ const geowarp = function geowarp({
   debug_level = 0,
   in_data,
   in_bbox = undefined,
+  in_geotransform = undefined, // 6-parameter geotransform, only necessary when in_data is skewed or rotated
   in_layout = "[band][row,column]",
   in_srs,
   in_height,
@@ -285,6 +287,13 @@ const geowarp = function geowarp({
   if (debug_level >= 1) console.log("[geowarp] pixel height of source data:", in_pixel_height);
   if (debug_level >= 1) console.log("[geowarp] pixel width of source data:", in_pixel_width);
 
+  in_geotransform ??= [in_xmin, in_pixel_width, 0, in_ymax, 0, -1 * in_pixel_height];
+
+  const { forward: in_img_pt_to_srs_pt, inverse: in_srs_pt_to_in_img_pt } = Geotransform(in_geotransform);
+
+  // convert point in output srs to image pixel coordinate in input image
+  const out_srs_pt_to_in_img_pt = same_srs ? in_srs_pt_to_in_img_pt : pt => in_srs_pt_to_in_img_pt(inv(pt));
+
   const [out_xmin, out_ymin, out_xmax, out_ymax] = out_bbox;
   if (debug_level >= 1) console.log("[geowarp] out_xmin:", out_xmin);
   if (debug_level >= 1) console.log("[geowarp] out_ymin:", out_ymin);
@@ -303,6 +312,12 @@ const geowarp = function geowarp({
 
   const half_out_sample_height = out_sample_height / 2;
   const half_out_sample_width = out_sample_width / 2;
+
+  // const out_geotransform = [out_xmin, out_pixel_width, 0, out_ymax, 0, -1 * out_pixel_height];
+  // const { forward: out_img_pt_to_srs_pt, inverse: out_srs_pt_to_img_pt } = Geotransform(out_geotransform);
+
+  const in_img_pt_to_out_srs_pt = same_srs ? in_img_pt_to_srs_pt : pt => fwd(in_img_pt_to_srs_pt(pt));
+  // const in_img_pt_to_out_img_pt = same_srs ? pt => out_srs_pt_to_img_pt(in_img_pt_to_srs_pts(pt)) : pt => out_srs_pt_to_img_pt(fwd(in_img_pt_to_srs_pt(pt)));
 
   if (theoretical_min === undefined || theoretical_max === undefined) {
     try {
@@ -590,61 +605,56 @@ const geowarp = function geowarp({
       [left, bottom, right, top] = cutline && cutline_strategy !== "inside" ? intersect(out_bbox_in_srs, cutline_bbox_in_srs) : out_bbox_in_srs;
 
       if ((left < in_xmax && bottom < in_ymax && right > in_xmin) || top < in_ymin) {
-        const in_row_start = Math.floor((in_ymax - top) / in_pixel_height);
-        const in_row_start_clamped = clamp(in_row_start, 0, in_height - 1);
-        const in_row_end = Math.min(Math.floor((in_ymax - bottom) / in_pixel_height), in_height - 1);
-        const in_row_end_clamped = clamp(in_row_end, 0, in_height - 1);
+        const out_bbox_in_input_image_coords = reprojectBoundingBox(out_bbox_in_srs, in_srs_pt_to_in_img_pt);
 
-        const in_column_start = Math.floor((left - in_xmin) / in_pixel_width);
-        const in_column_start_clamped = clamp(in_column_start, 0, in_width - 1);
-        const in_column_end = Math.min(Math.floor((right - in_xmin) / in_pixel_width), in_width - 1);
-        const in_column_end_clamped = clamp(in_column_end, 0, in_width - 1);
+        // need to double check intersection in image space in case of rotation/skew
+        if (booleanIntersects(out_bbox_in_input_image_coords, [0, 0, in_width, in_height])) {
+          // snap to pixel array inidices
+          const [in_column_start, in_row_start, in_column_end, in_row_end] = out_bbox_in_input_image_coords.map(n => Math.floor(n));
+          const in_row_start_clamped = clamp(in_row_start, 0, in_height - 1);
+          const in_row_end_clamped = clamp(in_row_end, 0, in_height - 1);
+          const in_column_start_clamped = clamp(in_column_start, 0, in_width - 1);
+          const in_column_end_clamped = clamp(in_column_end, 0, in_width - 1);
 
-        let pixel_ymin = in_ymax - in_row_start_clamped * in_pixel_height;
-        for (let r = in_row_start_clamped; r <= in_row_end_clamped; r++) {
-          // if (clear_process_cache) clear_process_cache();
-          const pixel_ymax = pixel_ymin;
-          pixel_ymin = pixel_ymax - in_pixel_height;
-          // clear_forward_cache(); // don't want cache to get too large, so just cache each row
-          for (let c = in_column_start_clamped; c <= in_column_end_clamped; c++) {
-            const raw_values = read_bands.map(band => select({ point: { band, row: r, column: c } }).value);
+          for (let r = in_row_start_clamped; r <= in_row_end_clamped; r++) {
+            // if (clear_process_cache) clear_process_cache();
+            // clear_forward_cache(); // don't want cache to get too large, so just cache each row
+            for (let c = in_column_start_clamped; c <= in_column_end_clamped; c++) {
+              const raw_values = read_bands.map(band => select({ point: { band, row: r, column: c } }).value);
 
-            if (should_skip(raw_values)) continue;
+              if (should_skip(raw_values)) continue;
 
-            const pixel_xmin = in_xmin + c * in_pixel_width;
-            const pixel_xmax = pixel_xmin + in_pixel_width;
+              const rect = polygon([c, r, c + 1, r + 1]);
 
-            const pixel_bbox = [pixel_xmin, pixel_ymin, pixel_xmax, pixel_ymax];
+              // to-do: reproject to [I, J] (output image point) because
+              // intersection algorithm assumes an unskewed space
+              // we'll only have to do this if we want to support rotated/skewed output
+              const pixel_geometry_in_out_srs = reprojectGeoJSON(rect, { reproject: in_img_pt_to_out_srs_pt });
 
-            // convert pixel to a rectangle polygon in srs of input data
-            const rect = polygon(pixel_bbox);
+              const intersect_options = {
+                debug: false,
+                raster_bbox: out_bbox,
+                raster_height: out_height_in_samples,
+                raster_width: out_width_in_samples,
+                geometry: pixel_geometry_in_out_srs
+              };
 
-            // reproject pixel rectangle from input to output srs
-            const pixel_geometry_in_out_srs = same_srs ? rect : reprojectGeoJSON(rect, { reproject: fwd });
+              // apply band math expression, no-data mapping, and rounding when applicable
+              const pixel = process({ pixel: raw_values });
 
-            const intersect_options = {
-              debug: false,
-              raster_bbox: out_bbox,
-              raster_height: out_height_in_samples,
-              raster_width: out_width_in_samples,
-              geometry: pixel_geometry_in_out_srs
-            };
-
-            // apply band math expression, no-data mapping, and rounding when applicable
-            const pixel = process({ pixel: raw_values });
-
-            if (cutline) {
-              intersect_options.per_pixel = ({ row, column }) => {
-                if (segments_by_row[row].some(([start, end]) => column >= start && column <= end)) {
+              if (cutline) {
+                intersect_options.per_pixel = ({ row, column }) => {
+                  if (segments_by_row[row].some(([start, end]) => column >= start && column <= end)) {
+                    insert_sample({ raw: raw_values, pixel, row, column });
+                  }
+                };
+              } else {
+                intersect_options.per_pixel = ({ row, column }) => {
                   insert_sample({ raw: raw_values, pixel, row, column });
-                }
-              };
-            } else {
-              intersect_options.per_pixel = ({ row, column }) => {
-                insert_sample({ raw: raw_values, pixel, row, column });
-              };
+                };
+              }
+              dufour_peyton_intersection.calculate(intersect_options);
             }
-            dufour_peyton_intersection.calculate(intersect_options);
           }
         }
       }
@@ -662,9 +672,7 @@ const geowarp = function geowarp({
           const x = out_xmin + c * out_sample_width + half_out_sample_width;
           const pt_out_srs = [x, y];
           const pt_in_srs = same_srs ? pt_out_srs : inv(pt_out_srs);
-          const [x_in_srs, y_in_srs] = pt_in_srs;
-          const x_in_raster_pixels = Math.floor((x_in_srs - in_xmin) / in_pixel_width);
-          const y_in_raster_pixels = Math.floor((in_ymax - y_in_srs) / in_pixel_height);
+          const [x_in_raster_pixels, y_in_raster_pixels] = in_srs_pt_to_in_img_pt(pt_in_srs).map(n => Math.floor(n));
 
           let raw_values = [];
 
@@ -708,10 +716,8 @@ const geowarp = function geowarp({
         for (let c = cstart; c <= cend; c++) {
           const x = out_xmin + c * out_sample_width + half_out_sample_width;
           const pt_out_srs = [x, y];
-          const [x_in_srs, y_in_srs] = same_srs ? pt_out_srs : inv(pt_out_srs);
-
-          const xInRasterPixels = (x_in_srs - in_xmin) / in_pixel_width;
-          const yInRasterPixels = (in_ymax - y_in_srs) / in_pixel_height;
+          const pt_in_srs = same_srs ? pt_out_srs : inv(pt_out_srs);
+          const [xInRasterPixels, yInRasterPixels] = in_srs_pt_to_in_img_pt(pt_in_srs);
 
           const left = Math.floor(xInRasterPixels);
           const right = Math.ceil(xInRasterPixels);
@@ -835,19 +841,18 @@ const geowarp = function geowarp({
           right = left + out_sample_width;
           // top, left, bottom, right is the sample area in the coordinate system of the output
 
-          // convert to bbox of input coordinate system
-          const bbox_in_srs = same_srs ? [left, bottom, right, top] : reprojectBoundingBox([left, bottom, right, top], inv, { density: 0 });
-          if (debug_level >= 3) console.log("[geowarp] bbox_in_srs:", bbox_in_srs);
-          const [xmin_in_srs, ymin_in_srs, xmax_in_srs, ymax_in_srs] = bbox_in_srs;
+          // convert bbox in output srs to image px of input
+          // combing srs reprojection and srs-to-image mapping, ensures that bounding box corners
+          // are reprojected fully before calculating containing bbox
+          // (prevents drift in increasing bbox twice if image is warped)
+          const [leftInRasterPixels, topInRasterPixels, rightInRasterPixels, bottomInRasterPixels] = reprojectBoundingBox(
+            [left, bottom, right, top],
+            out_srs_pt_to_in_img_pt
+          );
 
-          // convert bbox in input srs to raster pixels
-          const leftInRasterPixels = (xmin_in_srs - in_xmin) / in_pixel_width;
           if (debug_level >= 4) console.log("[geowarp] leftInRasterPixels:", leftInRasterPixels);
-          const rightInRasterPixels = (xmax_in_srs - in_xmin) / in_pixel_width;
           if (debug_level >= 4) console.log("[geowarp] rightInRasterPixels:", rightInRasterPixels);
-          const topInRasterPixels = (in_ymax - ymax_in_srs) / in_pixel_height;
           if (debug_level >= 4) console.log("[geowarp] topInRasterPixels:", topInRasterPixels);
-          const bottomInRasterPixels = (in_ymax - ymin_in_srs) / in_pixel_height;
           if (debug_level >= 4) console.log("[geowarp] bottomInRasterPixels:", bottomInRasterPixels);
 
           let leftSample = Math.round(leftInRasterPixels);

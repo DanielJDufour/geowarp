@@ -46,6 +46,10 @@ const result = geowarp({
   // could be 4326 or "EPSG:4326"
   in_srs: 4326,
 
+  // only necessary when in_data is skewed or rotated
+  // 6-parameter geotransform using the order from https://gdal.org/tutorials/geotransforms_tut.html
+  in_geotransform: [337934.48363, -0.142999, -0.576775, 7840518.4648, -0.57677, 0.14299],
+
   // how many pixels wide the input data is
   in_width: 1032,
 
@@ -84,8 +88,8 @@ const result = geowarp({
   // could be 4326 or "EPSG:4326"
   out_srs: 3857,
 
+  // optional
   // number of bands in the output
-  // defaults to the number of input bands
   out_pixel_depth: 3,
 
   // height of the output image in pixels
