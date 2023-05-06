@@ -349,6 +349,7 @@ const runTileTests = async ({
     most_common_pixels: [
       "0,0,0",
       "11,16,8",
+      "12,20,7",
       "13,18,9",
       "14,22,9",
       "15,23,10",
