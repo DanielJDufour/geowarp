@@ -9,6 +9,7 @@ export default function geowarp(options: {
   inverse?: reproject;
   in_data: data;
   in_bbox: bbox;
+  in_geotransform?: number[] | Readonly<[number, number, number, number, number, number]> | undefined;
   in_layout?: string;
   in_no_data?: number | null | undefined;
   in_srs?: srs | undefined;
