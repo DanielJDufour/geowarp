@@ -510,6 +510,28 @@ const geowarp = function geowarp({
 
   if (debug_level >= 1) console.log("[geowarp] method:", method);
 
+  // see if can create direct pixel affine transformation
+  // skipping over spatial reference system
+  let inverse_pixel = ([c, r]) => {
+    const x = out_xmin + c * out_sample_width + half_out_sample_width;
+    const y = out_ymax - r * out_sample_height - half_out_sample_height;
+    const pt_out_srs = [x, y];
+    const pt_in_srs = same_srs ? pt_out_srs : inverse(pt_out_srs);
+    const pt_in_img = in_srs_pt_to_in_img_pt(pt_in_srs).map(n => Math.floor(n));
+    return pt_in_img;
+  };
+
+  if (turbo) {
+    const { reproject } = turbocharge({
+      bbox: [0, 0, out_width, out_height],
+      debug_level: 0,
+      quiet: true,
+      reproject: inverse_pixel,
+      threshold: [half_out_sample_width, half_out_sample_height]
+    });
+    if (reproject) inverse_pixel = pt => reproject(pt).map(n => Math.round(n));
+  }
+
   let forward_turbocharged, inverse_turbocharged;
   if (turbo) {
     if (forward) {
@@ -544,7 +566,7 @@ const geowarp = function geowarp({
   // const [invCached, clearInvCache] = cacheFunction(inv);
 
   let out_sample_height_in_srs, out_sample_width_in_srs, pixel_height_ratio, pixel_width_ratio;
-  if (method === "near-vectorize") {
+  if (method === "near-vectorize" || method === "nearest-vectorize") {
     if (debug_level >= 2) console.log('[geowarp] choosing between "near" and "vectorize" for best speed');
 
     out_bbox_in_srs ??= reprojectBoundingBox(out_bbox, inverse, { density: 100 });
@@ -659,20 +681,15 @@ const geowarp = function geowarp({
         }
       }
     }
-  } else if (method === "near") {
+  } else if (method === "near" || method === "nearest") {
     const rmax = Math.min(row_end, out_height_in_samples);
-    let y = out_ymax + half_out_sample_height - row_start * out_sample_height;
     for (let r = row_start; r < rmax; r++) {
       // if (clear_process_cache) clear_process_cache();
-      y -= out_sample_height;
       const segments = segments_by_row[r];
       for (let iseg = 0; iseg < segments.length; iseg++) {
         const [cstart, cend] = segments[iseg];
         for (let c = cstart; c <= cend; c++) {
-          const x = out_xmin + c * out_sample_width + half_out_sample_width;
-          const pt_out_srs = [x, y];
-          const pt_in_srs = same_srs ? pt_out_srs : inv(pt_out_srs);
-          const [x_in_raster_pixels, y_in_raster_pixels] = in_srs_pt_to_in_img_pt(pt_in_srs).map(n => Math.floor(n));
+          const [x_in_raster_pixels, y_in_raster_pixels] = inverse_pixel([c, r]);
 
           let raw_values = [];
 
@@ -693,8 +710,6 @@ const geowarp = function geowarp({
             column: c,
             pixel,
             raw: raw_values,
-            pt_in_srs,
-            pt_out_srs,
             x_in_raster_pixels,
             y_in_raster_pixels
           });
@@ -909,18 +924,19 @@ const geowarp = function geowarp({
     }
   }
 
-  if (debug_level >= 1) console.log("[geowarp] took " + (performance.now() - start_time).toFixed(0) + "ms");
-
-  const generate_result = () => ({
-    data: out_data,
-    out_bands,
-    out_layout,
-    out_pixel_height,
-    out_pixel_width,
-    out_sample_height,
-    out_sample_width,
-    read_bands
-  });
+  const generate_result = () => {
+    if (debug_level >= 1) console.log("[geowarp] took " + (performance.now() - start_time).toFixed(0) + "ms");
+    return {
+      data: out_data,
+      out_bands,
+      out_layout,
+      out_pixel_height,
+      out_pixel_width,
+      out_sample_height,
+      out_sample_width,
+      read_bands
+    };
+  };
 
   if (pending > 0) {
     // async return
