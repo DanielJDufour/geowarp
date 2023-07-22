@@ -522,13 +522,13 @@ const geowarp = function geowarp({
   };
 
   if (turbo) {
-    const { reproject } = turbocharge({
+    const reproject = turbocharge({
       bbox: [0, 0, out_width, out_height],
-      debug_level: 0,
+      debug_level,
       quiet: true,
       reproject: inverse_pixel,
-      threshold: [half_out_sample_width, half_out_sample_height]
-    });
+      threshold: [0.5, 0.5]
+    })?.reproject;
     if (reproject) inverse_pixel = pt => reproject(pt).map(n => Math.round(n));
   }
 
