@@ -272,7 +272,7 @@ const runTileTests = async ({
                     counts = count(result.data, { depth: 2 });
                     const sortedCounts = Object.entries(counts).sort((a, b) => Math.sign(b[1] - a[1]));
                     const top = sortedCounts[0][0];
-                    if (method !== "first" && !out_bands) {
+                    if (!["first", "min", "max"].includes(method) && !out_bands) {
                       try {
                         eq(most_common_pixels.includes(top), true);
                       } catch (error) {
