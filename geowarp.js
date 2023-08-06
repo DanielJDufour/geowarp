@@ -930,6 +930,7 @@ const geowarp = function geowarp({
       data: out_data,
       out_bands,
       out_layout,
+      out_pixel_depth,
       out_pixel_height,
       out_pixel_width,
       out_sample_height,

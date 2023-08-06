@@ -59,6 +59,7 @@ export default function geowarp(options: {
   data: number[] | number[][] | number[][][];
   out_bands: number[];
   out_layout: string;
+  out_pixel_depth: number | undefined;
   out_pixel_height: number;
   out_pixel_width: number;
   read_bands: number[];
