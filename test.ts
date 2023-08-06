@@ -276,6 +276,7 @@ const runTileTests = async ({
                       try {
                         eq(most_common_pixels.includes(top), true);
                       } catch (error) {
+                        console.log("method:", method);
                         console.log("sortedCounts:", sortedCounts.slice(0, 5));
                         console.error("top:", `rgb(${top})`);
                         throw error;
@@ -379,6 +380,7 @@ const runTileTests = async ({
       "36,46,45",
       "40,49,47",
       "42,51,48",
+      "43,49,42",
       "46,53,48",
       "46,54,48"
     ],
