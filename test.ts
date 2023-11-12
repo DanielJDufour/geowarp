@@ -551,3 +551,46 @@ test("georaster-layer-for-leaflet v3 issues", async ({ eq }) => {
     round: false
   });
 });
+
+test("issue #24", async ({ eq }) => {
+  const filename = "vestfold.tif";
+  const filepath = resolve(__dirname, "./test-data", filename);
+  const geotiff = await fromFile(filepath);
+  const image = await geotiff.getImage(0);
+  const rasters = await image.readRasters();
+  const in_height = image.getHeight();
+  const in_width = image.getWidth();
+  const in_data = transform({
+    data: rasters,
+    from: "[band][row,column]",
+    to: "[band][row][column]",
+    sizes: { band: rasters.length, row: in_height, column: in_width }
+  }).data;
+
+  const result = geowarp({
+    debug_level: 0,
+    in_data,
+    in_bbox: [0, 0, in_width, in_height],
+    in_layout: "[band][row][column]",
+    in_width,
+    in_height,
+    out_array_types: ["Array", "Array", "Array"],
+    out_bbox: [256, 256, 512, 512],
+    out_layout: "[band][row][column]",
+    out_height: 256,
+    out_width: 256,
+    method: "near-vectorize",
+    round: false,
+    turbo: undefined
+  });
+
+  const out_data = result.data as number[][][];
+
+  eq(out_data.length, 1);
+  eq(out_data[0].length, 256);
+  eq(out_data[0][0].length, 256);
+
+  if (process.env.WRITE) {
+    writePNGSync({ h: result.out_height, w: result.out_width, data: [result.data[0], result.data[0], result.data[0]], filepath: `./test-output/issue-24` });
+  }
+});

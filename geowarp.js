@@ -569,7 +569,7 @@ const geowarp = function geowarp({
   if (method === "near-vectorize" || method === "nearest-vectorize") {
     if (debug_level >= 2) console.log('[geowarp] choosing between "near" and "vectorize" for best speed');
 
-    out_bbox_in_srs ??= reprojectBoundingBox(out_bbox, inverse, { density: 100 });
+    out_bbox_in_srs ??= same_srs ? out_bbox : reprojectBoundingBox(out_bbox, inverse, { density: 100 });
 
     out_sample_height_in_srs = (out_bbox_in_srs[3] - out_bbox_in_srs[1]) / out_height_in_samples;
     out_sample_width_in_srs = (out_bbox_in_srs[2] - out_bbox_in_srs[0]) / out_width_in_samples;
@@ -929,12 +929,14 @@ const geowarp = function geowarp({
     return {
       data: out_data,
       out_bands,
+      out_height,
       out_layout,
       out_pixel_depth,
       out_pixel_height,
       out_pixel_width,
       out_sample_height,
       out_sample_width,
+      out_width,
       read_bands
     };
   };
