@@ -135,6 +135,12 @@ const result = geowarp({
   },
 
   // optional
+  // whether to insert or skip null values
+  // "skip" - default, don't insert null values
+  // "insert" - try to insert null values into output data
+  insert_null_strategy: "skip",
+
+  // optional
   // array of band indexes to read from
   // use this if your expr function only uses select bands
   read_bands: [0, 1, 2],

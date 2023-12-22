@@ -155,6 +155,7 @@ const geowarp = function geowarp({
   turbo = false, // enable experimental turbocharging via proj-turbo
   insert_pixel, // over-ride function that inserts data into output multi-dimensional array
   insert_sample, // over-ride function that inserts each sample into the output multi-dimensional array (calls insert)
+  insert_null_strategy = "skip", // whether to insert or skip null values
   skip_no_data_strategy, // skip processing pixels if "any" or "all" values are "no data"
   cache_process = false // whether to try to cache the processing step
   // cache_functions // this really helps if functions are asynchronous and require posting to a web worker
@@ -669,18 +670,20 @@ const geowarp = function geowarp({
               // apply band math expression, no-data mapping, and rounding when applicable
               const pixel = process({ pixel: raw_values });
 
-              if (cutline) {
-                intersect_options.per_pixel = ({ row, column }) => {
-                  if (segments_by_row[row].some(([start, end]) => column >= start && column <= end)) {
+              if (pixel !== null || insert_null_strategy === "insert") {
+                if (cutline) {
+                  intersect_options.per_pixel = ({ row, column }) => {
+                    if (segments_by_row[row].some(([start, end]) => column >= start && column <= end)) {
+                      insert_sample({ raw: raw_values, pixel, row, column });
+                    }
+                  };
+                } else {
+                  intersect_options.per_pixel = ({ row, column }) => {
                     insert_sample({ raw: raw_values, pixel, row, column });
-                  }
-                };
-              } else {
-                intersect_options.per_pixel = ({ row, column }) => {
-                  insert_sample({ raw: raw_values, pixel, row, column });
-                };
+                  };
+                }
+                dufour_peyton_intersection.calculate(intersect_options);
               }
-              dufour_peyton_intersection.calculate(intersect_options);
             }
           }
         }
@@ -710,14 +713,16 @@ const geowarp = function geowarp({
 
           if (should_skip(raw_values)) continue;
           const pixel = process({ pixel: raw_values });
-          insert_sample({
-            row: r,
-            column: c,
-            pixel,
-            raw: raw_values,
-            x_in_raster_pixels,
-            y_in_raster_pixels
-          });
+          if (pixel !== null || insert_null_strategy === "insert") {
+            insert_sample({
+              row: r,
+              column: c,
+              pixel,
+              raw: raw_values,
+              x_in_raster_pixels,
+              y_in_raster_pixels
+            });
+          }
         }
       }
     }
@@ -815,7 +820,9 @@ const geowarp = function geowarp({
           }
           if (should_skip(raw_values)) continue;
           const pixel = process({ pixel: raw_values });
-          insert_sample({ row: r, column: c, pixel, raw: raw_values });
+          if (pixel !== null || insert_null_strategy === "insert") {
+            insert_sample({ row: r, column: c, pixel, raw: raw_values });
+          }
         }
       }
     }
@@ -923,7 +930,9 @@ const geowarp = function geowarp({
 
           if (should_skip(raw_values)) continue;
           const pixel = process({ pixel: raw_values });
-          insert_sample({ row: r, column: c, pixel, raw: raw_values });
+          if (pixel !== null || insert_null_strategy === "insert") {
+            insert_sample({ row: r, column: c, pixel, raw: raw_values });
+          }
         }
       }
     }

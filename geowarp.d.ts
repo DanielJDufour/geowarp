@@ -52,6 +52,7 @@ export default function geowarp(options: {
   cutline_srs?: number | string | undefined;
   cutline_forward?: reproject | undefined;
   cutline_strategy?: "inside" | "outside" | string | undefined;
+  insert_null_strategy?: "skip" | "insert" | undefined;
   skip_no_data_strategy?: "any" | "all" | undefined;
   cache_process?: true | false | boolean | undefined;
   turbo?: boolean | undefined;
