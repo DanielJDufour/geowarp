@@ -1,4 +1,4 @@
-const { booleanIntersects, intersect, polygon } = require("bbox-fns");
+const { booleanIntersects, calc: getBoundingBox, intersect, polygon } = require("bbox-fns");
 const dufour_peyton_intersection = require("dufour-peyton-intersection");
 const fastMax = require("fast-max");
 const fastMin = require("fast-min");
@@ -624,7 +624,7 @@ const geowarp = function geowarp({
     const cutline_in_srs = cutline && reprojectGeoJSON(cutline, { reproject: inverse });
 
     // in the future we might want to pull the function getBoundingBox into its own repo
-    const cutline_bbox_in_srs = cutline && dufour_peyton_intersection.getBoundingBox(cutline_in_srs);
+    const cutline_bbox_in_srs = cutline && getBoundingBox(cutline_in_srs);
 
     if (!cutline || booleanIntersects(in_bbox, cutline_bbox_in_srs)) {
       // update bounding box we sample from based on extent of cutline
