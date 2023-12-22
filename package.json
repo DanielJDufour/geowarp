@@ -10,8 +10,8 @@
   ],
   "scripts": {
     "clean": "rm -fr ./test-data/*.png && rm -fr ./test-output/*.png",
-    "format": "npm run lint -- --fix && npx prettier --arrow-parens=avoid --print-width=160 --trailing-comma=none --write *.js *.ts",
-    "lint": "npx eslint *.js",
+    "format": "npm run lint -- --fix && prettier --arrow-parens=avoid --print-width=160 --trailing-comma=none --write *.js *.ts",
+    "lint": "eslint *.js",
     "perf": "TEST_NAME=*perf* LOG_SKIP=false TEST_TIMED=true node test.js",
     "prepublish": "npm run lint",
     "setup": "cd ./test-data && ./setup.sh",
@@ -47,6 +47,7 @@
   "devDependencies": {
     "@mapbox/tilebelt": "^1.0.2",
     "@types/node": "^20.4.4",
+    "eslint": "^8.56.0",
     "fast-counter": "^0.1.0",
     "find-and-read": "^1.2.0",
     "flug": "^2.6.0",
@@ -55,6 +56,7 @@
     "geotiff-precise-bbox": "^0.2.0",
     "geotiff-read-bbox": "^2.0.2",
     "pngjs": "^7.0.0",
+    "prettier": "^3.1.1",
     "proj4-fully-loaded": "^0.2.0",
     "typescript": "^5.1.6",
     "write-image": "^0.2.0"

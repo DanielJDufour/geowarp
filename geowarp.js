@@ -162,6 +162,9 @@ const geowarp = function geowarp({
   if (debug_level >= 1) console.log("[geowarp] starting");
   const start_time = debug_level >= 1 ? performance.now() : 0;
 
+  if (isNaN(out_height)) throw new Error("[geowarp] out_height is NaN");
+  if (isNaN(out_width)) throw new Error("[geowarp] out_width is NaN");
+
   // track pending promises without the memory overhead
   // of holding all the promises in memory
   let pending = 0;
@@ -592,8 +595,8 @@ const geowarp = function geowarp({
     skip_no_data_strategy === "any"
       ? px => px.includes(undefined) || px.includes(in_no_data)
       : skip_no_data_strategy === "all"
-      ? px => px.every(n => n === in_no_data)
-      : () => false;
+        ? px => px.every(n => n === in_no_data)
+        : () => false;
 
   if (method === "vectorize") {
     // const [cfwd, clear_forward_cache] = cacheFunction(fwd);
@@ -605,14 +608,14 @@ const geowarp = function geowarp({
     out_sample_height_in_srs ??= (top - bottom) / out_height_in_samples;
     if (in_pixel_height < out_sample_height_in_srs) {
       if (debug_level >= 1) {
-        console.warn(`normalized height of sample area of ${out_sample_height_in_srs} is larger than input pixel height of ${in_pixel_height}`);
+        console.warn(`[geowarp] normalized height of sample area of ${out_sample_height_in_srs} is larger than input pixel height of ${in_pixel_height}`);
       }
     }
 
     out_sample_width_in_srs ??= (right - left) / out_width;
     if (in_pixel_width < out_sample_width_in_srs) {
       if (debug_level >= 1) {
-        console.warn(`normalized width of sample area of ${out_sample_width_in_srs} is larger than input pixel width of ${in_pixel_width}`);
+        console.warn(`[geowarp] normalized width of sample area of ${out_sample_width_in_srs} is larger than input pixel width of ${in_pixel_width}`);
       }
     }
 
@@ -625,9 +628,11 @@ const geowarp = function geowarp({
     if (!cutline || booleanIntersects(in_bbox, cutline_bbox_in_srs)) {
       // update bounding box we sample from based on extent of cutline
       [left, bottom, right, top] = cutline && cutline_strategy !== "inside" ? intersect(out_bbox_in_srs, cutline_bbox_in_srs) : out_bbox_in_srs;
+      if (debug_level >= 1) console.log("[geowarp] [left, bottom, right, top]:", [left, bottom, right, top]);
 
       if ((left < in_xmax && bottom < in_ymax && right > in_xmin) || top < in_ymin) {
         const out_bbox_in_input_image_coords = reprojectBoundingBox(out_bbox_in_srs, in_srs_pt_to_in_img_pt);
+        if (debug_level >= 1) console.log("[geowarp] out_bbox_in_input_image_coords:", out_bbox_in_input_image_coords);
 
         // need to double check intersection in image space in case of rotation/skew
         if (booleanIntersects(out_bbox_in_input_image_coords, [0, 0, in_width, in_height])) {
