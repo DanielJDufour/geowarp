@@ -65,7 +65,7 @@
     "bbox-fns": "^0.20.2",
     "calc-image-stats": "^0.9.0",
     "dufour-peyton-intersection": "^0.2.0",
-    "fast-max": "^0.5.0",
+    "fast-max": "^0.5.1",
     "fast-min": "^0.4.0",
     "geoaffine": "^0.2.0",
     "get-depth": "^0.0.3",
