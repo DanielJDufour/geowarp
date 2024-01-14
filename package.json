@@ -2,7 +2,7 @@
   "name": "geowarp",
   "version": "1.26.0",
   "description": "Super Low-Level Raster Reprojection and Resampling Library",
-  "main": "geowarp.js",
+  "main": "./geowarp.js",
   "types": "geowarp.d.ts",
   "files": [
     "geowarp.js",
