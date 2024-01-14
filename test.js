@@ -812,7 +812,7 @@ test("skew", async ({ eq }) => {
   }
 });
 
-test("o0antarctica", async ({ eq }) => {
+test("antarctica with NaN", async ({ eq }) => {
   const filename = "bremen_sea_ice_conc_2022_9_9.tif";
   const filepath = path.resolve(__dirname, "./test-data", filename);
   const geotiff = await GeoTIFF.fromFile(filepath);
