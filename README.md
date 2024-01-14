@@ -42,6 +42,9 @@ const result = geowarp({
   // see: https://github.com/danieljdufour/xdim
   in_layout: "[band][row,column]",
 
+  // a number or array of numbers
+  in_no_data: -99,
+
   // a number or string representing the spatial reference system of the input data
   // could be 4326 or "EPSG:4326"
   in_srs: 4326,
