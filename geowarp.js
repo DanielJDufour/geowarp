@@ -918,7 +918,7 @@ const geowarp = function geowarp({
 
           let raw_values = [];
           if (leftSample >= in_width || rightSample < 0 || bottomSample < 0 || topSample >= in_height) {
-            raw_values = new Array(read_bands.length).fill(in_no_data);
+            raw_values = new Array(read_bands.length).fill(primary_in_no_data);
           } else {
             // clamp edges to prevent clipping outside bounds
             leftSample = Math.max(0, leftSample);

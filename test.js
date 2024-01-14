@@ -106,7 +106,9 @@ test("reproject without clipping", async ({ eq }) => {
     out_layout: "[band][row][column]",
     out_srs,
     forward,
-    inverse
+    inverse,
+    method: "median",
+    round: true
   });
 
   if (process.env.WRITE) {
