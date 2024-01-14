@@ -11,7 +11,7 @@ export default function geowarp(options: {
   in_bbox: bbox;
   in_geotransform?: number[] | Readonly<[number, number, number, number, number, number]> | undefined;
   in_layout?: string;
-  in_no_data?: number | null | undefined;
+  in_no_data?: number | number[] | readonly number[] | null | undefined;
   in_srs?: srs | undefined;
   in_width: number;
   in_height: number;
