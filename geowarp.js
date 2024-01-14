@@ -6,7 +6,7 @@ const Geotransform = require("geoaffine/Geotransform.js");
 const getDepth = require("get-depth");
 const getTheoreticalMax = require("typed-array-ranges/get-max");
 const getTheoreticalMin = require("typed-array-ranges/get-min");
-const fasterMedian = require("faster-median");
+const calcMedian = require("mediana").calculate;
 const reprojectBoundingBox = require("bbox-fns/reproject.js");
 const reprojectGeoJSON = require("reproject-geojson/pluggable");
 const { turbocharge } = require("proj-turbo");
@@ -17,6 +17,8 @@ const xdim = require("xdim");
 // l = console.log;
 
 const clamp = (n, min, max) => (n < min ? min : n > max ? max : n);
+
+const isInvalid = n => n === undefined || n === null || n !== n;
 
 const scaleInteger = (n, r) => {
   const n2 = Math.round(n * r);
@@ -41,7 +43,7 @@ const forEach = (nums, no_data, cb) => {
   if (no_data) {
     for (let i = 0; i < len; i++) {
       const n = nums[i];
-      if (n !== no_data) cb(n);
+      if (no_data.indexOf(n) === -1) cb(n);
     }
   } else {
     for (let i = 0; i < len; i++) {
@@ -62,12 +64,11 @@ const mean = (nums, in_no_data) => {
 
 const mode = (nums, no_data) => {
   if (nums.length === 0) return undefined;
-
   const counts = {};
   if (no_data) {
     for (let i = 0; i < nums.length; i++) {
       const n = nums[i];
-      if (n !== no_data) {
+      if (typeof n === "number" && n === n && no_data.indexOf(n) === -1) {
         if (n in counts) counts[n].count++;
         else counts[n] = { n, count: 1 };
       }
@@ -121,7 +122,7 @@ const geowarp = function geowarp({
   in_pixel_height, // optional, automatically calculated from in_bbox
   in_pixel_width, // optional, automatically calculated from in_bbox
   in_width,
-  in_no_data,
+  in_no_data, // optional, supports one number or an array of unique no data values
   out_array_types, // array of constructor names passed to internal call to xdim's prepareData function
   out_bands, // array of bands to keep and order, default is keeping all the bands in same order
   out_data, // single or multi-dimensional array that geowarp will fill in with the output
@@ -240,6 +241,15 @@ const geowarp = function geowarp({
   if (round && typeof out_no_data === "number") out_no_data = Math.round(out_no_data);
   // if (out_no_data === null && out_no_data_strategy === "keep") out_no_data = in_no_data;
 
+  if (Array.isArray(in_no_data) === false) {
+    if ("in_no_data" in arguments[0]) {
+      in_no_data = [in_no_data];
+    } else {
+      in_no_data = [];
+    }
+  }
+  const primary_in_no_data = in_no_data[0];
+
   // processing step after we have read the raw pixel values
   let process;
   if (expr) {
@@ -258,14 +268,14 @@ const geowarp = function geowarp({
       process = ({ pixel }) =>
         out_bands_to_read_bands.map(iband => {
           const value = pixel[iband];
-          return value === undefined || value === in_no_data ? out_no_data : Math.round(value);
+          return isInvalid(value) || in_no_data.includes(value) ? out_no_data : Math.round(value);
         });
     } else {
       // without rounding
       process = ({ pixel }) =>
         out_bands_to_read_bands.map(iband => {
           const value = pixel[iband];
-          return value === undefined || value === in_no_data ? out_no_data : value;
+          return isInvalid(value) || in_no_data.includes(value) ? out_no_data : value;
         });
     }
   }
@@ -594,9 +604,9 @@ const geowarp = function geowarp({
 
   const should_skip =
     skip_no_data_strategy === "any"
-      ? px => px.includes(undefined) || px.includes(in_no_data)
+      ? px => px.some(n => isInvalid(n) || in_no_data.includes(n))
       : skip_no_data_strategy === "all"
-        ? px => px.every(n => n === in_no_data)
+        ? px => px.every(n => isInvalid(n) || in_no_data.includes(n))
         : () => false;
 
   if (method === "vectorize") {
@@ -703,7 +713,7 @@ const geowarp = function geowarp({
 
           if (x_in_raster_pixels < 0 || y_in_raster_pixels < 0 || x_in_raster_pixels >= in_width || y_in_raster_pixels >= in_height) {
             // through reprojection, we can sometimes find ourselves just across the edge
-            raw_values = new Array(read_bands.length).fill(in_no_data);
+            raw_values = new Array(read_bands.length).fill(primary_in_no_data);
           } else {
             raw_values = selectPixel({
               row: y_in_raster_pixels,
@@ -758,31 +768,33 @@ const geowarp = function geowarp({
           const topWeight = top === bottom ? 0.5 : bottom - yInRasterPixels;
           const bottomWeight = top === bottom ? 0.5 : yInRasterPixels - top;
 
-          const leftInvalid = left < 0 || left >= in_width;
-          const rightInvalid = right < 0 || right >= in_width;
-          const topInvalid = top < 0 || top >= in_height;
-          const bottomInvalid = bottom < 0 || bottom >= in_height;
+          const leftOutside = left < 0 || left >= in_width;
+          const rightOutside = right < 0 || right >= in_width;
+          const topOutside = top < 0 || top >= in_height;
+          const bottomOutside = bottom < 0 || bottom >= in_height;
 
-          const upperLeftInvalid = topInvalid || leftInvalid;
-          const upperRightInvalid = topInvalid || rightInvalid;
-          const lowerLeftInvalid = bottomInvalid || leftInvalid;
-          const lowerRightInvalid = bottomInvalid || rightInvalid;
+          const upperleftOutside = topOutside || leftOutside;
+          const upperRightOutside = topOutside || rightOutside;
+          const lowerleftOutside = bottomOutside || leftOutside;
+          const lowerRightOutside = bottomOutside || rightOutside;
 
           const raw_values = new Array();
           for (let i = 0; i < read_bands.length; i++) {
             const read_band = read_bands[i];
 
-            const upperLeftValue = upperLeftInvalid ? in_no_data : select({ point: { band: read_band, row: top, column: left } }).value;
-            const upperRightValue = upperRightInvalid ? in_no_data : select({ point: { band: read_band, row: top, column: right } }).value;
-            const lowerLeftValue = lowerLeftInvalid ? in_no_data : select({ point: { band: read_band, row: bottom, column: left } }).value;
-            const lowerRightValue = lowerRightInvalid ? in_no_data : select({ point: { band: read_band, row: bottom, column: right } }).value;
+            const upperLeftValue = upperleftOutside ? primary_in_no_data : select({ point: { band: read_band, row: top, column: left } }).value;
+            const upperRightValue = upperRightOutside ? primary_in_no_data : select({ point: { band: read_band, row: top, column: right } }).value;
+            const lowerLeftValue = lowerleftOutside ? primary_in_no_data : select({ point: { band: read_band, row: bottom, column: left } }).value;
+            const lowerRightValue = lowerRightOutside ? primary_in_no_data : select({ point: { band: read_band, row: bottom, column: right } }).value;
 
             let topValue;
-            if ((upperLeftValue === undefined || upperLeftValue === in_no_data) && (upperRightValue === undefined || upperRightValue === in_no_data)) {
+            const upperLeftInvalid = isInvalid(upperLeftValue) || in_no_data.includes(upperLeftValue);
+            const upperRightInvalid = isInvalid(upperRightValue) || in_no_data.includes(upperRightValue);
+            if (upperLeftInvalid && upperRightInvalid) {
               // keep topValue undefined
-            } else if (upperLeftValue === undefined || upperLeftValue === in_no_data) {
+            } else if (upperLeftInvalid) {
               topValue = upperRightValue;
-            } else if (upperRightValue === undefined || upperRightValue === in_no_data) {
+            } else if (upperRightInvalid) {
               topValue = upperLeftValue;
             } else if (upperLeftValue === upperRightValue) {
               // because the upper-left and upper-right values are the same, no weighting is necessary
@@ -792,11 +804,13 @@ const geowarp = function geowarp({
             }
 
             let bottomValue;
-            if ((lowerLeftValue === undefined || lowerLeftValue === in_no_data) && (lowerRightValue === undefined || lowerRightValue === in_no_data)) {
+            const lowerLeftInvalid = isInvalid(lowerLeftValue) || in_no_data.includes(lowerLeftValue);
+            const lowerRightInvalid = isInvalid(lowerRightValue) || in_no_data.includes(lowerRightValue);
+            if (lowerLeftInvalid && lowerRightInvalid) {
               // keep bottom value undefined
-            } else if (lowerLeftValue === undefined || lowerLeftValue === in_no_data) {
+            } else if (lowerLeftInvalid) {
               bottomValue = lowerRightValue;
-            } else if (lowerRightValue === undefined || lowerRightValue === in_no_data) {
+            } else if (lowerRightInvalid) {
               bottomValue = lowerLeftValue;
             } else if (lowerLeftValue === lowerRightValue) {
               // because the lower-left and lower-right values are the same, no weighting is necessary
@@ -807,7 +821,7 @@ const geowarp = function geowarp({
 
             let value;
             if (topValue === undefined && bottomValue === undefined) {
-              value = in_no_data;
+              value = primary_in_no_data;
             } else if (topValue === undefined) {
               value = bottomValue;
             } else if (bottomValue === undefined) {
@@ -827,27 +841,29 @@ const geowarp = function geowarp({
       }
     }
   } else {
+    // Q: why don't we pass no_data to the following statistical methods (e.g. fastMax)?
+    // A: we are already filtering out invalid and no-data values beforehand
     let calc;
     if (typeof method === "function") {
-      calc = values => (values.length === 0 ? in_no_data : method({ values }));
+      calc = values => method({ values });
     } else if (method === "max") {
-      calc = values => (values.length === 0 ? in_no_data : fastMax(values, { no_data: in_no_data, theoretical_max }));
+      calc = values => fastMax(values, { theoretical_max });
     } else if (method === "mean") {
-      calc = values => (values.length === 0 ? in_no_data : mean(values, in_no_data));
+      calc = values => mean(values);
     } else if (method === "median") {
-      calc = values => (values.length === 0 ? in_no_data : fasterMedian({ nums: values, no_data: in_no_data }));
+      calc = values => calcMedian(values);
     } else if (method === "min") {
-      calc = values => (values.length === 0 ? in_no_data : fastMin(values, { no_data: in_no_data, theoretical_min }));
+      calc = values => fastMin(values, { theoretical_min });
     } else if (method === "mode") {
-      calc = values => (values.length === 0 ? in_no_data : mode(values)[0]);
+      calc = values => mode(values)[0];
     } else if (method === "mode-max") {
-      calc = values => (values.length === 0 ? in_no_data : fastMax(mode(values)));
+      calc = values => fastMax(mode(values));
     } else if (method === "mode-mean") {
-      calc = values => (values.length === 0 ? in_no_data : mean(mode(values)));
+      calc = values => mean(mode(values));
     } else if (method === "mode-median") {
-      calc = values => (values.length === 0 ? in_no_data : fasterMedian({ nums: mode(values) }));
+      calc = values => calcMedian(mode(values));
     } else if (method === "mode-min") {
-      calc = values => (values.length === 0 ? in_no_data : fastMin(mode(values)));
+      calc = values => fastMin(mode(values));
     } else {
       throw new Error(`[geowarp] unknown method "${method}"`);
     }
@@ -923,8 +939,12 @@ const geowarp = function geowarp({
                   column: [leftSample, Math.max(leftSample, rightSample - 1)]
                 }
               });
-              const valid_values = values.filter(v => v !== undefined && v !== in_no_data);
-              raw_values.push(calc(valid_values));
+              const valid_values = values.filter(v => typeof v === "number" && v === v && in_no_data.indexOf(v) === -1);
+              if (valid_values.length === 0) {
+                raw_values.push(primary_in_no_data);
+              } else {
+                raw_values.push(calc(valid_values));
+              }
             }
           }
 

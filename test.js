@@ -811,3 +811,49 @@ test("skew", async ({ eq }) => {
     }
   }
 });
+
+test("o0antarctica", async ({ eq }) => {
+  const filename = "bremen_sea_ice_conc_2022_9_9.tif";
+  const filepath = path.resolve(__dirname, "./test-data", filename);
+  const geotiff = await GeoTIFF.fromFile(filepath);
+  const image = await geotiff.getImage(0);
+  const in_data = await image.readRasters();
+  // console.log("read data", in_data);
+  const bbox = getBoundingBox(image);
+  const in_height = image.getHeight();
+  const in_width = image.getWidth();
+  // const fd = image.fileDirectory;
+  const geokeys = image.getGeoKeys();
+  const in_srs = geokeys.ProjectedCSTypeGeoKey; // 3031
+
+  const methods = ["near", "bilinear", "median"];
+  for (let i = 0; i < methods.length; i++) {
+    const method = methods[i];
+    const result = await geowarp({
+      in_bbox: bbox,
+      in_data,
+      in_layout: "[band][row,column]",
+      in_srs,
+      in_height,
+      in_width,
+      out_bbox: bbox,
+      out_height: 512,
+      out_no_data: 127,
+      out_width: 512,
+      out_layout: "[band][row][column]",
+      out_srs: 3031,
+      method
+    });
+    console.log(method + " warped", result.data);
+
+    // check that no NaN values in output
+    eq(
+      result.data.flat(3).findIndex(it => isNaN(it)),
+      -1
+    );
+
+    if (process.env.WRITE) {
+      writePNGSync({ h: 512, w: 512, data: [result.data[0], result.data[0], result.data[0]], filepath: `./test-output/sea-icea-${method}` });
+    }
+  }
+});
