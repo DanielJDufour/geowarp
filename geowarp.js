@@ -549,7 +549,7 @@ const geowarp = function geowarp({
   let forward_turbocharged, inverse_turbocharged;
   if (turbo) {
     if (forward) {
-      out_bbox_in_srs ??= reprojectBoundingBox(out_bbox, inverse, { density: 100 });
+      out_bbox_in_srs ??= reprojectBoundingBox(out_bbox, inverse, { density: 100, nan_strategy: "skip" });
       intersect_bbox_in_srs ??= intersect(in_bbox, out_bbox_in_srs);
       forward_turbocharged = turbocharge({
         bbox: intersect_bbox_in_srs,
@@ -583,8 +583,9 @@ const geowarp = function geowarp({
   if (method === "near-vectorize" || method === "nearest-vectorize") {
     if (debug_level >= 2) console.log('[geowarp] choosing between "near" and "vectorize" for best speed');
 
-    out_bbox_in_srs ??= same_srs ? out_bbox : reprojectBoundingBox(out_bbox, inverse, { density: 100 });
+    out_bbox_in_srs ??= same_srs ? out_bbox : reprojectBoundingBox(out_bbox, inverse, { density: 100, nan_strategy: "skip" });
 
+    // average of how large each output pixel is in the input spatial reference system
     out_sample_height_in_srs = (out_bbox_in_srs[3] - out_bbox_in_srs[1]) / out_height_in_samples;
     out_sample_width_in_srs = (out_bbox_in_srs[2] - out_bbox_in_srs[0]) / out_width_in_samples;
 
@@ -613,7 +614,8 @@ const geowarp = function geowarp({
     // const [cfwd, clear_forward_cache] = cacheFunction(fwd);
 
     // reproject bounding box of output (e.g. a tile) into the spatial reference system of the input data
-    out_bbox_in_srs ??= same_srs ? out_bbox : reprojectBoundingBox(out_bbox, inverse, { density: 100 });
+    // setting nan_strategy to skip trims the box in case the output bbox extends over the bounds of the input projection
+    out_bbox_in_srs ??= same_srs ? out_bbox : reprojectBoundingBox(out_bbox, inverse, { density: 100, nan_strategy: "skip" });
     let [left, bottom, right, top] = out_bbox_in_srs;
 
     out_sample_height_in_srs ??= (top - bottom) / out_height_in_samples;
@@ -888,11 +890,18 @@ const geowarp = function geowarp({
           // combing srs reprojection and srs-to-image mapping, ensures that bounding box corners
           // are reprojected fully before calculating containing bbox
           // (prevents drift in increasing bbox twice if image is warped)
-          const [leftInRasterPixels, topInRasterPixels, rightInRasterPixels, bottomInRasterPixels] = reprojectBoundingBox(
-            [left, bottom, right, top],
-            out_srs_pt_to_in_img_pt
-          );
-
+          let leftInRasterPixels, topInRasterPixels, rightInRasterPixels, bottomInRasterPixels;
+          try {
+            [leftInRasterPixels, topInRasterPixels, rightInRasterPixels, bottomInRasterPixels] = reprojectBoundingBox(
+              [left, bottom, right, top],
+              out_srs_pt_to_in_img_pt,
+              { nan_strategy: "throw" }
+            );
+          } catch (error) {
+            // if only one pixel (or row of pixels) extends over the edge of the projection's bounds, we probably don't want to fail the whole thing
+            // an example would be warping the globe from 3857 to 4326
+            continue;
+          }
           if (debug_level >= 4) console.log("[geowarp] leftInRasterPixels:", leftInRasterPixels);
           if (debug_level >= 4) console.log("[geowarp] rightInRasterPixels:", rightInRasterPixels);
           if (debug_level >= 4) console.log("[geowarp] topInRasterPixels:", topInRasterPixels);
