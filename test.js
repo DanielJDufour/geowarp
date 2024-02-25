@@ -860,3 +860,67 @@ test("antarctica with NaN", async ({ eq }) => {
     }
   }
 });
+
+test("issue 27: globe 3857 to 4326", async ({ eq }) => {
+  const filename = "gadas-world.tif";
+  const filepath = path.resolve(__dirname, "./test-data", filename);
+  const geotiff = await GeoTIFF.fromFile(filepath);
+  const image = await geotiff.getImage(0);
+  const in_data = await image.readRasters();
+  const bbox = getBoundingBox(image);
+  const in_height = image.getHeight();
+  const in_width = image.getWidth();
+  const out_height = 180 * 2;
+  const out_width = 360 * 2;
+
+  const { forward, inverse } = proj4("EPSG:3857", "EPSG:4326");
+
+  const methods = ["near-vectorize", "near", "bilinear", "median"];
+  const turbos = [true, false];
+  for (let i = 0; i < methods.length; i++) {
+    const method = methods[i];
+    for (let ii = 0; ii < 2; ii++) {
+      const turbo = turbos[ii];
+      const result = await geowarp({
+        debug_level: 0,
+        in_bbox: bbox,
+        in_geotransform: [-20057076.25595305, 39135.75848200009, 0, 12640208.839021027, 0, -39135.75848200009],
+        in_data,
+        in_layout: "[band][row,column]",
+        in_srs: 3857,
+        in_height,
+        in_width,
+        out_bbox: [-180, -90, 180, 90],
+        out_height,
+        out_no_data: null,
+        out_width,
+        out_layout: "[band][row][column]",
+        out_srs: 4326,
+        forward,
+        inverse,
+        method,
+        round: true,
+        theoretical_max: 255,
+        theoretical_min: 0,
+        turbo
+      });
+      // console.log(method + " warped");
+      // console.dir(result.data, { maxArrayLength: 3 });
+
+      // console.dir(
+      //   result.data.map(band => band.map(row => row[0])),
+      //   { maxArrayLength: 500 }
+      // );
+
+      // check that no NaN values in output
+      eq(
+        result.data.flat(3).findIndex(it => isNaN(it)),
+        -1
+      );
+
+      if (process.env.WRITE) {
+        writePNGSync({ h: out_height, w: out_width, data: result.data, filepath: `./test-output/gadas-whole-4326-${method}${turbo ? "-turbo" : ""}` });
+      }
+    }
+  }
+});
